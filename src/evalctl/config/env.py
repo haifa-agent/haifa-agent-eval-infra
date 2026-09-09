@@ -23,7 +23,11 @@ def parse_env_content(content: str) -> dict[str, str]:
         if (val.startswith('"') and val.endswith('"')) or (
             val.startswith("'") and val.endswith("'")
         ):
-            val = val[1:-1]
+            val = val.strip("\"'")
+        else:
+            if " #" in val:
+                val = val.split(" #", 1)[0].strip()
+            val = val.strip("\"'")
         vars_dict[key] = val
     return vars_dict
 

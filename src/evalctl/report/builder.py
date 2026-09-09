@@ -53,9 +53,16 @@ def build_evaluation_report(
     cp_summary = None
     ad_summary = None
 
-    if "cases" in run_result_data:
-        # Check if it's CP or AD
-        suite_id = run_result_data.get("suiteId", "")
+    if (
+        "cases" in run_result_data
+        or "nativeResult" in run_result_data
+        or run_result_data.get("suiteType") == "critical-path"
+    ):
+        suite_id = (
+            run_result_data.get("suiteId")
+            or run_result_data.get("nativeResult", {}).get("suiteId")
+            or ""
+        )
         if "autonomous" in suite_id.lower() or "ad-" in suite_id.lower():
             ad_summary = summarize_autonomous_delivery([run_result_data])
         else:

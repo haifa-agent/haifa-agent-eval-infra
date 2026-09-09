@@ -17,6 +17,7 @@ def prepare_sources(
     request: RunRequest,
     local_source_script: Path,
     local_control_dir: Path,
+    verbose: bool = False,
 ) -> dict[str, Any]:
     """Transfers temporary deploy key, runs source preparation, and verifies commits."""
     key_env = request.source.githubPrivateKeyFileEnv
@@ -48,14 +49,16 @@ def prepare_sources(
             "--",
             request.runId,
             repos.product.url,
-            repos.product.commit,
+            repos.product.target_ref,
             repos.docs.url,
-            repos.docs.commit,
+            repos.docs.target_ref,
             repos.testConfig.url,
-            repos.testConfig.commit,
+            repos.testConfig.target_ref,
             remote_key_path,
         ]
-        res_prep = transport.run_command(args, stdin_data=script_content, timeout=300)
+        res_prep = transport.run_command(
+            args, stdin_data=script_content, timeout=300, verbose=verbose
+        )
         if res_prep.returncode != 0:
             raise SourcePrepareError(
                 f"Source preparation failed ({res_prep.returncode}):\n{res_prep.stderr}"
@@ -73,14 +76,28 @@ def prepare_sources(
             json.dumps(manifest, indent=2), encoding="utf-8"
         )
 
-        # Verify exact commits match
+        # Verify exact commits match when commit was explicitly specified
         man_repos = manifest.get("repositories", {})
-        if man_repos.get("product", {}).get("commit") != repos.product.commit:
+        if (
+            repos.product.commit
+            and man_repos.get("product", {}).get("commit") != repos.product.commit
+        ):
             raise SourcePrepareError("Product commit mismatch in source manifest")
-        if man_repos.get("docs", {}).get("commit") != repos.docs.commit:
+        if repos.docs.commit and man_repos.get("docs", {}).get("commit") != repos.docs.commit:
             raise SourcePrepareError("Docs commit mismatch in source manifest")
-        if man_repos.get("testConfig", {}).get("commit") != repos.testConfig.commit:
+        if (
+            repos.testConfig.commit
+            and man_repos.get("testConfig", {}).get("commit") != repos.testConfig.commit
+        ):
             raise SourcePrepareError("TestConfig commit mismatch in source manifest")
+
+        # Backfill resolved commit into repos when branch was specified
+        if not repos.product.commit:
+            repos.product.commit = man_repos.get("product", {}).get("commit", "")
+        if not repos.docs.commit:
+            repos.docs.commit = man_repos.get("docs", {}).get("commit", "")
+        if not repos.testConfig.commit:
+            repos.testConfig.commit = man_repos.get("testConfig", {}).get("commit", "")
 
         return manifest
     finally:

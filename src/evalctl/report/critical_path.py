@@ -7,23 +7,35 @@ from typing import Any
 
 def summarize_critical_path(run_result_data: dict[str, Any]) -> dict[str, Any]:
     """Extracts deterministic Critical Path metrics (Smoke vs CP-01~CP-11)."""
-    suite_id = run_result_data.get("suiteId", "")
-    cases_raw = run_result_data.get("cases", [])
+    suite_id = (
+        run_result_data.get("suiteId")
+        or run_result_data.get("nativeResult", {}).get("suiteId")
+        or ""
+    )
+    cases_raw = run_result_data.get("cases") or run_result_data.get("nativeResult", {}).get(
+        "results", []
+    )
 
     is_smoke = "smoke" in suite_id.lower()
     total_cases = len(cases_raw)
-    passed_cases = sum(1 for c in cases_raw if c.get("status") in ("PASS", "PASSED", "SUCCESS"))
-    failed_cases = sum(1 for c in cases_raw if c.get("status") not in ("PASS", "PASSED", "SUCCESS"))
+    passed_cases = sum(
+        1 for c in cases_raw if str(c.get("status", "")).upper() in ("PASS", "PASSED", "SUCCESS")
+    )
+    failed_cases = sum(
+        1
+        for c in cases_raw
+        if str(c.get("status", "")).upper() not in ("PASS", "PASSED", "SUCCESS")
+    )
 
     case_details: list[dict[str, Any]] = []
     for c in cases_raw:
         case_details.append(
             {
-                "caseId": c.get("id"),
+                "caseId": c.get("caseId") or c.get("id"),
                 "repetition": c.get("repetition", 1),
                 "status": c.get("status", "UNKNOWN"),
                 "failureReason": c.get("failureReason") or c.get("error"),
-                "durationMs": c.get("durationMs", 0),
+                "durationMs": c.get("durationMillis") or c.get("durationMs", 0),
             }
         )
 

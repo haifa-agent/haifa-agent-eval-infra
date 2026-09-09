@@ -42,4 +42,16 @@ if [[ "$INCLUDE_EVIDENCE" == "--include-evidence" ]]; then
   sudo rm -rf "/var/lib/haifa-eval/evidence/$RUN_ID"
 fi
 
+echo "[cleanup] Stopping and removing any residual haifa-utility-mcp service..."
+if systemctl is-active haifa-utility-mcp >/dev/null 2>&1; then
+  sudo systemctl stop haifa-utility-mcp 2>/dev/null || true
+fi
+if systemctl is-enabled haifa-utility-mcp >/dev/null 2>&1; then
+  sudo systemctl disable haifa-utility-mcp 2>/dev/null || true
+fi
+if [[ -f /etc/systemd/system/haifa-utility-mcp.service ]]; then
+  sudo rm -f /etc/systemd/system/haifa-utility-mcp.service
+  sudo systemctl daemon-reload 2>/dev/null || true
+fi
+
 echo "[cleanup] Cleanup for $RUN_ID completed."

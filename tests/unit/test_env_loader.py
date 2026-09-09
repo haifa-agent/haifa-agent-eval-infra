@@ -99,7 +99,7 @@ output:
         req_file, validate_local_keys=False, validate_local_result_root=False
     )
     assert req.target.address == "10.0.0.99"
-    assert req.target.user == "ecs-users"  # Default user
+    assert req.target.user == "ecs-user"  # Default user
 
 
 def test_target_yaml_env_placeholder_expansion(tmp_path: Path, monkeypatch):

@@ -18,17 +18,40 @@
 
 ## CLI 子命令体系
 
-```text
+```bash
+# 1. 请求配置校验：检查 Run Request YAML 结构、字段约束与仓库定义
 evalctl request validate --file <request>
+
+# 2. 主机信任建立：探测目标主机 SSH 公钥指纹，与声明校验一致后写入本地受控 known_hosts
 evalctl host trust --file <request>
+
+# 3. 主机只读预检：检查远端 OS 版本、CPU 架构、内核参数、tmpfs 挂载点与可用磁盘空间
 evalctl host doctor --file <request>
-evalctl host bootstrap --file <request>
-evalctl source prepare --file <request>
+
+# 4. 主机环境引导：幂等安装最小 APT 依赖包与物理路径 JDK 21，生成主机环境快照 (host_facts)
+evalctl host bootstrap --file <request> [-v/--verbose]
+
+# 5. 源码克隆与版本冻结：临时注入只读凭据，独立检出主仓/文档仓/配置仓精确 40 位 commit 后立即销毁凭据
+evalctl source prepare --file <request> [-v/--verbose]
+
+# 6. 两阶段门禁（第一阶段）：远端构建 runner 并生成执行计划与费用预算，产出 Plan Set Digest
 evalctl plan --file <request>
-evalctl run --file <request> --approved-plan-set <digest>
-evalctl status --run-id <id>
-evalctl logs --run-id <id> [--follow]
-evalctl collect --run-id <id>
-evalctl report --run-id <id> [--format terminal|json|markdown]
-evalctl cleanup --run-id <id>
+
+# 7. 两阶段门禁（第二阶段）：携带人工核准的 Plan Set Digest 启动评测，注入内存级 API Key 并拉起 systemd 隔离单元
+evalctl run --file <request> --approved-plan-set <digest> [-v/--verbose]
+
+# 8. 任务状态查询：查看当前评测生命周期阶段（如 WAITING_APPROVAL、RUNNING、EVIDENCE_READY 等）
+evalctl status --file <request>
+
+# 9. 执行日志查看：读取评测各套件的远端 systemd journal 日志（支持 --follow 实时日志跟随）
+evalctl logs --file <request> [--follow]
+
+# 10. 证据产物收集：从远端拉取 Evidence Root 至本地，执行哈希清单比对与凭据防泄漏扫描
+evalctl collect --file <request>
+
+# 11. 评测报告生成：解析本地证据并生成标准化评测报告（支持 terminal 终端高亮、json、markdown 格式）
+evalctl report --file <request> [--format terminal|json|markdown]
+
+# 12. 远端环境清理：安全停止并清理远端瞬态单元与代码树（默认严格校验本地证据完整收据）
+evalctl cleanup --file <request> [--include-evidence] [--force]
 ```

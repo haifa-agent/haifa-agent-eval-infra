@@ -48,7 +48,7 @@ def check_key_file(env_name: str, purpose: str) -> Path:
         raise RequestValidationError(
             f"Environment variable '{env_name}' for {purpose} is not set in local environment"
         )
-    key_path = Path(path_str).resolve()
+    key_path = Path(path_str.strip().strip("\"'")).resolve()
     if not key_path.is_file():
         raise RequestValidationError(
             f"Private key file for {purpose} does not exist: {key_path} (from {env_name})"

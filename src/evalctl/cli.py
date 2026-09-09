@@ -33,7 +33,7 @@ def get_transport(request, local_run_dir: Path) -> SSHTransport:
     key_path_str = os.getenv(key_file_env)
     if not key_path_str:
         raise EvalctlError(f"Host SSH key environment variable '{key_file_env}' is not set")
-    key_path = Path(key_path_str).resolve()
+    key_path = Path(key_path_str.strip().strip("\"'")).resolve()
     known_hosts = local_run_dir / "control" / "known_hosts"
     return SSHTransport(
         host=request.target.address,
@@ -50,6 +50,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--env-file",
         default=argparse.SUPPRESS,
         help="Path to .env credential file (defaults to ./.env in current directory if present)",
+    )
+    common_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Enable real-time verbose output of remote commands",
     )
 
     parser = argparse.ArgumentParser(
@@ -180,18 +187,22 @@ def main(args: list[str] | None = None) -> int:
             print("[evalctl] Host preflight doctor checks PASSED.")
             return 0
 
+        verbose = getattr(parsed, "verbose", False)
+
         if parsed.command == "host" and parsed.subcommand == "bootstrap":
             boot_script = REPO_ROOT / "remote" / "bootstrap.sh"
             lockfile = REPO_ROOT / "lockfiles" / "bootstrap-ubuntu-26.04.json"
             facts_dir = control_dir / "host_facts"
-            facts = run_host_bootstrap(transport, request, boot_script, lockfile, facts_dir)
+            facts = run_host_bootstrap(
+                transport, request, boot_script, lockfile, facts_dir, verbose=verbose
+            )
             lifecycle.record(LifecycleStage.BOOTSTRAPPED, extra=facts)
             print(f"[evalctl] Host bootstrap completed. Toolchain facts saved to {facts_dir}")
             return 0
 
         if parsed.command == "source" and parsed.subcommand == "prepare":
             src_script = REPO_ROOT / "remote" / "source-prepare.sh"
-            manifest = prepare_sources(transport, request, src_script, control_dir)
+            manifest = prepare_sources(transport, request, src_script, control_dir, verbose=verbose)
             lifecycle.record(LifecycleStage.SOURCE_PINNED, artifacts=manifest)
             print(f"[evalctl] Sources prepared and pinned for run {request.runId}")
             return 0
@@ -239,6 +250,7 @@ def main(args: list[str] | None = None) -> int:
                         on_progress=lambda p: print(
                             f"  [progress] phase={p['phase']} evaluated={p['evaluated']} passed={p['passed']} current={p['currentCase']}"
                         ),
+                        verbose=verbose,
                     )
                 lifecycle.record(LifecycleStage.EVIDENCE_READY)
                 print(

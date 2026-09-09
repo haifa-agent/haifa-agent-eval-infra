@@ -28,6 +28,7 @@ def generate_plan_set(
 
     for suite_run in request.evaluation.runs:
         remote_plan_out = f"{remote_plans_dir}/{suite_run.id}.json"
+        run_root = f"/var/lib/haifa-eval/runs/{request.runId}"
         cmd = [
             "bash",
             f"{worktree}/test-config/scripts/run-suite.sh",
@@ -40,6 +41,8 @@ def generate_plan_set(
             suite_run.platform,
             "--mode",
             "live",
+            "--run-root",
+            run_root,
             "--output",
             remote_plan_out,
             "--project-root",

@@ -48,6 +48,7 @@ def execute_suite_run(
     local_journal_file: Path,
     local_supervisor_script: Path,
     on_progress: Callable[[dict[str, str]], None] | None = None,
+    verbose: bool = False,
 ) -> int:
     """Executes a single suite via supervisor and streams safe progress to local journal."""
     local_journal_file.parent.mkdir(parents=True, exist_ok=True)
@@ -62,10 +63,20 @@ def execute_suite_run(
     # Upload supervisor script
     transport.run_command(["mkdir", "-p", f"/var/lib/haifa-eval/runs/{request.runId}/control"])
     transport.run_command(
-        ["bash", "-c", f"cat > {remote_script_path} && chmod +x {remote_script_path}"],
+        ["bash", "-c", 'cat > "$1" && chmod +x "$1"', "_", remote_script_path],
         stdin_data=script_content,
         timeout=15,
     )
+
+    # Upload ensure-mcp script
+    local_mcp_script = local_supervisor_script.parent / "ensure-mcp.sh"
+    if local_mcp_script.is_file():
+        remote_mcp_path = f"/var/lib/haifa-eval/runs/{request.runId}/control/ensure-mcp.sh"
+        transport.run_command(
+            ["bash", "-c", 'cat > "$1" && chmod +x "$1"', "_", remote_mcp_path],
+            stdin_data=local_mcp_script.read_text(encoding="utf-8"),
+            timeout=15,
+        )
 
     tracker = SafeProgressTracker(on_progress=on_progress)
 
@@ -75,6 +86,8 @@ def execute_suite_run(
         def stream_callback(line: str) -> None:
             journal.write(line)
             journal.flush()
+            if verbose:
+                print(line, end="", flush=True)
             tracker.handle_line(line)
 
         cmd = [
@@ -86,6 +99,7 @@ def execute_suite_run(
             suite_spec.approveBudget,
             worktree,
             secrets_path,
+            "haifa-eval",
         ]
         exit_code = transport.stream_command(cmd, on_line=stream_callback)
 

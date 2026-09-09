@@ -14,15 +14,20 @@ HEX_SHA_REGEX = re.compile(r"^[0-9a-f]{40}$")
 RUN_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
+def _default_user() -> str:
+    u = os.getenv("TARGET_HOST_USER", os.getenv("HAIFA_EVAL_TARGET_USER", "ecs-user")).strip()
+    return "ecs-user" if u in ("ecs-users", "ecs-user") else (u or "ecs-user")
+
+
 class TargetConfig(BaseModel):
     address: str = Field(
-        default_factory=lambda: os.getenv("TARGET_HOST_IP", os.getenv("HAIFA_EVAL_TARGET_IP", ""))
+        default_factory=lambda: os.getenv("TARGET_HOST_IP", os.getenv("HAIFA_EVAL_TARGET_IP", "")),
+        validate_default=True,
     )
     port: int = 22
     user: str = Field(
-        default_factory=lambda: os.getenv(
-            "TARGET_HOST_USER", os.getenv("HAIFA_EVAL_TARGET_USER", "ecs-users")
-        )
+        default_factory=_default_user,
+        validate_default=True,
     )
     hostKeySha256: str = ""
     sshPrivateKeyFileEnv: str
@@ -46,9 +51,11 @@ class TargetConfig(BaseModel):
         val = value.strip() if value else ""
         if not val:
             val = os.getenv(
-                "TARGET_HOST_USER", os.getenv("HAIFA_EVAL_TARGET_USER", "ecs-users")
+                "TARGET_HOST_USER", os.getenv("HAIFA_EVAL_TARGET_USER", "ecs-user")
             ).strip()
-        return val or "ecs-users"
+        if val in ("ecs-users", "ecs-user"):
+            return "ecs-user"
+        return val or "ecs-user"
 
     @field_validator("port")
     @classmethod
@@ -67,16 +74,31 @@ class TargetConfig(BaseModel):
 
 class RepoSpec(BaseModel):
     url: str
-    commit: str
+    commit: str = ""
+    branch: str = ""
 
-    @field_validator("commit")
-    @classmethod
-    def validate_commit(cls, value: str) -> str:
-        if not HEX_SHA_REGEX.match(value.lower()):
+    @model_validator(mode="after")
+    def validate_commit_or_branch(self) -> RepoSpec:
+        c = (self.commit or "").strip().lower()
+        b = (self.branch or "").strip()
+        if c:
+            if not HEX_SHA_REGEX.match(c):
+                raise RequestValidationError(
+                    f"Repository commit must be an exact 40-character hex SHA, got: {c}"
+                )
+            self.commit = c
+        elif b:
+            self.branch = b
+        else:
             raise RequestValidationError(
-                f"Repository commit must be an exact 40-character hex SHA, got: {value}"
+                f"Repository '{self.url}' must specify either 'commit' (40-char hex) or 'branch'"
             )
-        return value.lower()
+        return self
+
+    @property
+    def target_ref(self) -> str:
+        """Returns commit if specified, otherwise branch."""
+        return self.commit if self.commit else self.branch
 
 
 class RepositoriesConfig(BaseModel):

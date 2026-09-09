@@ -28,6 +28,7 @@ def run_host_bootstrap(
     local_bootstrap_script: Path,
     lockfile_path: Path,
     local_facts_dir: Path,
+    verbose: bool = False,
 ) -> dict[str, Any]:
     """Uploads and runs remote bootstrap script, then pulls and validates toolchain facts."""
     lock_data = json.loads(lockfile_path.read_text(encoding="utf-8"))
@@ -35,9 +36,10 @@ def run_host_bootstrap(
     # Upload bootstrap script to remote
     script_content = local_bootstrap_script.read_text(encoding="utf-8")
     res = transport.run_command(
-        ["sudo", "bash", "-s"],
+        ["sudo", "bash", "-s", "--", request.target.user],
         stdin_data=script_content,
         timeout=600,
+        verbose=verbose,
     )
     if res.returncode != 0:
         raise BootstrapError(

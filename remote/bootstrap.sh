@@ -3,6 +3,7 @@
 set -euo pipefail
 
 FACTS_DIR="/var/lib/haifa-eval/facts"
+EVAL_USER="${1:-$USER}"
 PACKAGES=(
   ca-certificates curl wget git openssh-client
   jq tar unzip zip xz-utils rsync
@@ -39,15 +40,20 @@ fi
 java_version="$("$eval_java" -version 2>&1 | awk -F '"' '/version/ {print $2}')"
 echo "[bootstrap] Found Java version: $java_version at $eval_java_home"
 
-echo "[bootstrap] Creating system user haifa-eval..."
+echo "[bootstrap] Ensuring dedicated unprivileged haifa-eval user exists..."
 if ! id -u haifa-eval >/dev/null 2>&1; then
   sudo useradd -r -s /bin/bash -m -d /home/haifa-eval haifa-eval
 fi
+sudo usermod -a -G haifa-eval "$EVAL_USER" || true
+sudo usermod -a -G "$EVAL_USER" haifa-eval || true
 
-echo "[bootstrap] Creating standard directory hierarchy..."
+echo "[bootstrap] Configuring standard directory hierarchy for haifa-eval and user $EVAL_USER..."
 sudo mkdir -p /opt/haifa-eval
 sudo mkdir -p /var/lib/haifa-eval/{runs,worktrees,plans,evidence,facts}
 sudo chown -R haifa-eval:haifa-eval /var/lib/haifa-eval
+sudo chmod -R 775 /var/lib/haifa-eval
+sudo chmod g+s /var/lib/haifa-eval
+sudo chown -R haifa-eval:haifa-eval /opt/haifa-eval
 
 if df -T /run 2>/dev/null | awk 'NR==2 {print $2}' | grep -qw "tmpfs"; then
   sudo mkdir -p /run/haifa-eval
@@ -77,5 +83,5 @@ cat <<EOF | sudo tee "$FACTS_DIR/toolchain.json" >/dev/null
 }
 EOF
 
-sudo chown -R haifa-eval:haifa-eval "$FACTS_DIR"
+sudo chown -R "$EVAL_USER:$EVAL_USER" "$FACTS_DIR"
 echo "[bootstrap] Host bootstrap completed successfully."

@@ -61,3 +61,32 @@ def test_invalid_run_id_characters(sample_request_path: Path):
     raw["runId"] = "run with spaces"
     with pytest.raises(RequestValidationError, match="runId must match"):
         RunRequest.model_validate(raw)
+
+
+def test_repo_branch_only_is_valid(sample_request_path: Path):
+    raw = yaml.safe_load(sample_request_path.read_text(encoding="utf-8"))
+    del raw["source"]["repositories"]["product"]["commit"]
+    raw["source"]["repositories"]["product"]["branch"] = "main"
+
+    req = RunRequest.model_validate(raw)
+    assert req.source.repositories.product.branch == "main"
+    assert req.source.repositories.product.commit == ""
+    assert req.source.repositories.product.target_ref == "main"
+
+
+def test_repo_commit_takes_precedence_over_branch(sample_request_path: Path):
+    raw = yaml.safe_load(sample_request_path.read_text(encoding="utf-8"))
+    raw["source"]["repositories"]["product"]["branch"] = "main"
+    # commit is already 40-char hex
+    req = RunRequest.model_validate(raw)
+    assert req.source.repositories.product.branch == "main"
+    assert req.source.repositories.product.commit == "0123456789abcdef0123456789abcdef01234567"
+    assert req.source.repositories.product.target_ref == "0123456789abcdef0123456789abcdef01234567"
+
+
+def test_repo_neither_commit_nor_branch_fails(sample_request_path: Path):
+    raw = yaml.safe_load(sample_request_path.read_text(encoding="utf-8"))
+    del raw["source"]["repositories"]["product"]["commit"]
+    # Neither commit nor branch
+    with pytest.raises(RequestValidationError, match="must specify either 'commit' .* or 'branch'"):
+        RunRequest.model_validate(raw)

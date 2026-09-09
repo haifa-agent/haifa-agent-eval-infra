@@ -21,7 +21,7 @@ class EphemeralSecretManager:
     def inject_secrets(self) -> str:
         """Injects secrets from local environment into remote tmpfs via stdin."""
         # 1. Confirm /run is tmpfs on remote
-        res = self.transport.run_command(["bash", "-c", "df -T /run | awk 'NR==2 {print $2}'"])
+        res = self.transport.run_command(["df", "-T", "/run"])
         if "tmpfs" not in res.stdout:
             raise EvalctlError("Remote /run is not a tmpfs mount; refusing to inject secrets")
 
@@ -37,17 +37,19 @@ class EphemeralSecretManager:
         content = "\n".join(lines) + "\n"
 
         # 3. Create directory and write file securely with 0600 permissions
-        cmd = [
-            "sudo",
-            "bash",
-            "-c",
-            f"mkdir -p {self.remote_dir} && "
-            f"cat > {self.remote_file} && "
-            f"chown -R haifa-eval:haifa-eval {self.remote_dir} && "
-            f"chmod 0700 {self.remote_dir} && "
-            f"chmod 0600 {self.remote_file}",
-        ]
-        res_inject = self.transport.run_command(cmd, stdin_data=content, timeout=15)
+        script = (
+            f"set -eu\n"
+            f"mkdir -p {self.remote_dir}\n"
+            f"cat << 'EOF_SECRETS' > {self.remote_file}\n"
+            f"{content}"
+            f"EOF_SECRETS\n"
+            f"chown -R haifa-eval:haifa-eval {self.remote_dir}\n"
+            f"chmod 0700 {self.remote_dir}\n"
+            f"chmod 0600 {self.remote_file}\n"
+        )
+        res_inject = self.transport.run_command(
+            ["sudo", "bash", "-s"], stdin_data=script, timeout=15
+        )
         if res_inject.returncode != 0:
             raise EvalctlError(f"Failed to inject secrets to remote tmpfs: {res_inject.stderr}")
 

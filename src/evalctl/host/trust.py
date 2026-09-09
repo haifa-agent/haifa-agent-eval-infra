@@ -9,6 +9,7 @@ from pathlib import Path
 
 from evalctl.config.schema import RunRequest
 from evalctl.core.errors import HostTrustError
+from evalctl.transport.ssh import find_ssh_binary
 
 
 def parse_host_key_fingerprint(raw_key_line: str) -> tuple[str, str]:
@@ -25,7 +26,7 @@ def parse_host_key_fingerprint(raw_key_line: str) -> tuple[str, str]:
 
 def scan_remote_host_key(address: str, port: int = 22) -> list[tuple[str, str, str]]:
     """Runs ssh-keyscan to discover host keys and returns list of (line, type, fingerprint)."""
-    cmd = ["ssh-keyscan", "-p", str(port), address]
+    cmd = [find_ssh_binary("ssh-keyscan"), "-p", str(port), address]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15, check=False)
     except Exception as exc:

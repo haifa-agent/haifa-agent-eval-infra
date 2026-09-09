@@ -1,0 +1,52 @@
+schemaVersion: 1
+runId: fresh-host-probe-001
+
+target:
+  # address and user are omitted here and will be loaded from .env (TARGET_HOST_IP and TARGET_HOST_USER)
+  hostKeySha256: "SHA256:lm8QcfqbnK4aeSLVofPsHOuqnyComJTVYrcSarU9PNQ"
+  sshPrivateKeyFileEnv: HAIFA_EVAL_HOST_SSH_KEY_FILE
+  requirePasswordlessSudo: true
+
+source:
+  githubPrivateKeyFileEnv: HAIFA_EVAL_GITHUB_SSH_KEY_FILE
+  repositories:
+    product:
+      url: git@github.com:haifa-agent/haifa-agent.git
+      branch: dev
+      # commit: 0123456789abcdef0123456789abcdef01234567 # 若指定 commit 则使用指定 commit，否则自动解析该分支最新 commit
+    docs:
+      url: git@github.com:haifa-agent/haifa-agent-internal-docs.git
+      branch: main
+    testConfig:
+      url: git@github.com:haifa-agent/haifa-agent-test-config.git
+      branch: main
+
+evaluation:
+  kind: haifa-harness
+  providerId: zhipu
+  modelId: glm-5.3-flash
+  agentProfileRef: coding-zhipu-glm53-flash
+  requiredSecretEnvironmentNames:
+    - BIGMODEL_API_KEY
+    - ALIYUN_IQS_API_KEY
+  runs:
+    - id: cp-smoke
+      suite: critical-path-smoke-v1
+      platform: linux-primary
+      approveBudget: "5"
+      reportRole: admission
+    - id: cp-regression
+      suite: critical-path-regression-v1
+      platform: linux-primary
+      approveBudget: "20"
+      reportRole: formal
+    - id: cp-deep
+      suite: critical-path-deep-v1
+      platform: linux-primary
+      approveBudget: "20"
+      reportRole: formal
+
+output:
+  remoteEvidenceRoot: /var/lib/haifa-eval/evidence
+  localResultRoot: D:/haifa-agent-eval-results
+  retainRemoteEvidenceAfterPull: true
