@@ -277,8 +277,32 @@ def main(args: list[str] | None = None) -> int:
             return 0
 
         if parsed.command == "logs":
+            if getattr(parsed, "follow", False):
+                remote_journals = f"/var/lib/haifa-eval/runs/{request.runId}/journals"
+                cmd = [
+                    "bash",
+                    "-c",
+                    f"mkdir -p '{remote_journals}' && tail -n 50 -F '{remote_journals}'/*.journal 2>/dev/null",
+                ]
+                print(f"[evalctl] Streaming remote logs for run {request.runId} (Ctrl+C to stop)...")
+                try:
+                    transport.stream_command(cmd, on_line=lambda l: print(l, end="", flush=True))
+                except KeyboardInterrupt:
+                    print("\n[evalctl] Stopped log following.")
+                return 0
+
             journal_files = list(control_dir.glob("*.journal"))
             if not journal_files:
+                res = transport.run_command(
+                    [
+                        "bash",
+                        "-c",
+                        f"cat /var/lib/haifa-eval/runs/{request.runId}/journals/*.journal 2>/dev/null || true",
+                    ]
+                )
+                if res.stdout.strip():
+                    print(res.stdout)
+                    return 0
                 print(f"[evalctl] No journal logs found for run {request.runId}")
                 return 0
             for jf in journal_files:
