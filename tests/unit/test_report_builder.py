@@ -86,3 +86,52 @@ def test_build_evaluation_report_secret_scan_failed_marks_invalid_evidence(
 
     report = build_evaluation_report(req, run_dir)
     assert report["status"] == "INVALID_EVIDENCE"
+
+
+def test_build_evaluation_report_autonomous_delivery(
+    sample_request_path: Path, tmp_path: Path
+):
+    req, _, _ = load_run_request(
+        sample_request_path, validate_local_keys=False, validate_local_result_root=False
+    )
+    run_dir = tmp_path / req.runId
+    evidence_dir = run_dir / "evidence"
+    evidence_dir.mkdir(parents=True)
+
+    (evidence_dir / "secret-scan.json").write_text(
+        json.dumps({"status": "CLEAN"}), encoding="utf-8"
+    )
+
+    phase1 = {
+        "suiteType": "autonomous-delivery",
+        "phase": "PHASE_1",
+        "cases": [
+            {"id": "01", "gatePassed": True, "repetition": 1},
+            {"id": "02", "gatePassed": False, "repetition": 1},
+        ],
+        "usageSummary": {"estimatedCostMinorUnits": 100},
+    }
+    phase2 = {
+        "suiteType": "autonomous-delivery",
+        "nativeResult": {
+            "phase": "PHASE_2",
+            "results": [
+                {"caseId": "03", "gatePassed": True, "repetition": 1, "acceptancePassed": True},
+            ],
+        },
+        "usageSummary": {"estimatedCostMinorUnits": 200},
+    }
+    (evidence_dir / "ad-phase-1.json").write_text(json.dumps(phase1), encoding="utf-8")
+    (evidence_dir / "ad-phase-2.json").write_text(json.dumps(phase2), encoding="utf-8")
+    (evidence_dir / "run-result.json").write_text(json.dumps(phase2), encoding="utf-8")
+
+    report = build_evaluation_report(req, run_dir)
+    assert report["status"] == "COMPLETE_WITH_FAILURES"
+    assert report["autonomousDelivery"]["combinedScore"] == "2/3"
+    assert len(report["autonomousDelivery"]["cases"]) == 3
+    assert report["autonomousDelivery"]["phases"]["PHASE_1"]["passed"] == 1
+    assert report["autonomousDelivery"]["phases"]["PHASE_2"]["passed"] == 1
+
+    md = render_markdown(report)
+    assert "### Case Details" in md
+    assert "| `PHASE_2` | `03` | 1 | `PASS` | `PASS` |" in md

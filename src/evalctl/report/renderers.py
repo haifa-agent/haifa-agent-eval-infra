@@ -115,4 +115,17 @@ def render_markdown(report_data: dict[str, Any]) -> str:
                 f"| `{pname}` | {pinfo.get('evaluated')} | {pinfo.get('passed')} | `{pinfo.get('status')}` |"
             )
 
+        if ad.get("cases"):
+            md.append("\n### Case Details")
+            md.append(
+                "| Phase | Case ID | Repetition | Gate | Hidden Acceptance | Native Status |"
+            )
+            md.append("| --- | --- | --- | --- | --- | --- |")
+            for c in ad.get("cases", []):
+                gate_str = "PASS" if c.get("gatePassed") else "FAIL"
+                acc_str = "PASS" if c.get("hiddenAcceptance") else "FAIL"
+                md.append(
+                    f"| `{c.get('phase')}` | `{c.get('caseId')}` | {c.get('repetition')} | `{gate_str}` | `{acc_str}` | `{c.get('nativeStatus')}` |"
+                )
+
     return "\n".join(md)
