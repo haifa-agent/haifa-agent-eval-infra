@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,19 @@ from pydantic import ValidationError
 
 from evalctl.config.schema import RunRequest
 from evalctl.core.errors import RequestValidationError
+
+ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)(?::-([^}]*))?\}")
+
+
+def expand_env_vars(text: str) -> str:
+    """Substitutes ${VAR} and ${VAR:-default} placeholders with values from os.environ."""
+
+    def replace(match: re.Match[str]) -> str:
+        var_name = match.group(1)
+        default_val = match.group(2)
+        return os.getenv(var_name, default_val if default_val is not None else "")
+
+    return ENV_VAR_PATTERN.sub(replace, text)
 
 
 def canonical_json(data: dict[str, Any]) -> str:
@@ -63,7 +77,8 @@ def load_run_request(
 
     try:
         raw_content = path.read_text(encoding="utf-8")
-        parsed_data = yaml.safe_load(raw_content)
+        expanded_content = expand_env_vars(raw_content)
+        parsed_data = yaml.safe_load(expanded_content)
     except Exception as exc:
         raise RequestValidationError(f"Failed to parse YAML file {path}: {exc}") from exc
 

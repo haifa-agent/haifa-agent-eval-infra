@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Literal
 
@@ -14,12 +15,40 @@ RUN_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 class TargetConfig(BaseModel):
-    address: str
+    address: str = Field(
+        default_factory=lambda: os.getenv("TARGET_HOST_IP", os.getenv("HAIFA_EVAL_TARGET_IP", ""))
+    )
     port: int = 22
-    user: str
+    user: str = Field(
+        default_factory=lambda: os.getenv(
+            "TARGET_HOST_USER", os.getenv("HAIFA_EVAL_TARGET_USER", "ecs-users")
+        )
+    )
     hostKeySha256: str = ""
     sshPrivateKeyFileEnv: str
     requirePasswordlessSudo: bool = True
+
+    @field_validator("address")
+    @classmethod
+    def validate_address(cls, value: str) -> str:
+        val = value.strip() if value else ""
+        if not val:
+            val = os.getenv("TARGET_HOST_IP", os.getenv("HAIFA_EVAL_TARGET_IP", "")).strip()
+        if not val:
+            raise RequestValidationError(
+                "Target host IP address is missing! Specify target.address in YAML or TARGET_HOST_IP in .env"
+            )
+        return val
+
+    @field_validator("user")
+    @classmethod
+    def validate_user(cls, value: str) -> str:
+        val = value.strip() if value else ""
+        if not val:
+            val = os.getenv(
+                "TARGET_HOST_USER", os.getenv("HAIFA_EVAL_TARGET_USER", "ecs-users")
+            ).strip()
+        return val or "ecs-users"
 
     @field_validator("port")
     @classmethod
