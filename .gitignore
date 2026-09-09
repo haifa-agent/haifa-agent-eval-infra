@@ -22,5 +22,6 @@ results/
 *.id_rsa
 .env
 .env.*
+!.env.example
 *.env
 secrets.env
