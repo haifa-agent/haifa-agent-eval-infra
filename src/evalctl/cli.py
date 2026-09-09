@@ -152,6 +152,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(args: list[str] | None = None) -> int:
+    if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(errors="replace")
+        except Exception:
+            pass
+    if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(errors="replace")
+        except Exception:
+            pass
+
     parser = build_parser()
     parsed = parser.parse_args(args)
 
@@ -209,7 +220,7 @@ def main(args: list[str] | None = None) -> int:
 
         if parsed.command == "plan":
             plans_dir = local_run_dir / "plans"
-            plan_set = generate_plan_set(transport, request, request_sha, plans_dir)
+            plan_set = generate_plan_set(transport, request, request_sha, plans_dir, verbose=verbose)
             lifecycle.record(
                 LifecycleStage.PLAN_CREATED,
                 artifacts={"planSetSha256": plan_set["planSetSha256"]},

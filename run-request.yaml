@@ -3,7 +3,7 @@ runId: fresh-host-probe-001
 
 target:
   # address and user are omitted here and will be loaded from .env (TARGET_HOST_IP and TARGET_HOST_USER)
-  hostKeySha256: "SHA256:lm8QcfqbnK4aeSLVofPsHOuqnyComJTVYrcSarU9PNQ"
+  hostKeySha256: "SHA256:POH1qMxApMN3J+pDrF4eUFp2kprDWPBEyCQWgrmmqJc"
   sshPrivateKeyFileEnv: HAIFA_EVAL_HOST_SSH_KEY_FILE
   requirePasswordlessSudo: true
 

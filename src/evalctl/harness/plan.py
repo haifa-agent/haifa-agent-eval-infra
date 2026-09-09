@@ -17,6 +17,7 @@ def generate_plan_set(
     request: RunRequest,
     request_sha256: str,
     local_plans_dir: Path,
+    verbose: bool = False,
 ) -> dict[str, Any]:
     """Runs harness plan for all configured suites and compiles canonical Plan Set."""
     local_plans_dir.mkdir(parents=True, exist_ok=True)
@@ -50,7 +51,7 @@ def generate_plan_set(
             "--config-root",
             f"{worktree}/test-config",
         ]
-        res = transport.run_command(cmd, timeout=120)
+        res = transport.run_command(cmd, timeout=600, verbose=verbose)
         if res.returncode != 0:
             raise PlanApprovalError(
                 f"Harness plan failed for suite '{suite_run.suite}' ({res.returncode}):\n{res.stderr.strip()}"

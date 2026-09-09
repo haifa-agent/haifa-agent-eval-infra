@@ -54,6 +54,7 @@ sudo chown -R haifa-eval:haifa-eval /var/lib/haifa-eval
 sudo chmod -R 775 /var/lib/haifa-eval
 sudo chmod g+s /var/lib/haifa-eval
 sudo chown -R haifa-eval:haifa-eval /opt/haifa-eval
+sudo git config --system --add safe.directory '*' || true
 
 if df -T /run 2>/dev/null | awk 'NR==2 {print $2}' | grep -qw "tmpfs"; then
   sudo mkdir -p /run/haifa-eval

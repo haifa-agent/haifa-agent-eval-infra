@@ -2,6 +2,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -113,7 +114,13 @@ class SSHTransport:
             if proc.stdout:
                 for line_bytes in iter(proc.stdout.readline, b""):
                     line_str = line_bytes.decode("utf-8", errors="replace")
-                    print(line_str, end="", flush=True)
+                    try:
+                        sys.stdout.write(line_str)
+                        sys.stdout.flush()
+                    except UnicodeEncodeError:
+                        enc = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
+                        sys.stdout.write(line_str.encode(enc, errors="replace").decode(enc, errors="replace"))
+                        sys.stdout.flush()
                     stdout_chunks.append(line_str)
 
             ret = proc.wait(timeout=timeout)
