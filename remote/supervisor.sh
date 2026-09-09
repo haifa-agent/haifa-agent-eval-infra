@@ -43,9 +43,16 @@ if [[ -f "$MCP_ENSURE_SCRIPT" ]]; then
   bash "$MCP_ENSURE_SCRIPT" "$RUN_USER" 20002 || true
 fi
 
+# Clean up any prior state for this unit
+sudo systemctl stop "$UNIT_NAME" 2>/dev/null || true
+sudo systemctl reset-failed "$UNIT_NAME" 2>/dev/null || true
+sudo rm -f "/run/systemd/transient/$UNIT_NAME.service" 2>/dev/null || true
+sudo systemctl daemon-reload 2>/dev/null || true
+
 # Run via systemd-run to survive SSH disconnection
 sudo systemd-run \
   --unit="$UNIT_NAME" \
+  --collect \
   --description="Haifa Evaluation $RUN_ID $SUITE_ID" \
   --uid="$RUN_USER" \
   --gid="$RUN_USER" \
