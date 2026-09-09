@@ -74,7 +74,11 @@ def generate_plan_set(
             ) from exc
 
         # Extract budget and verify runner
-        plan_sha = calculate_sha256(plan_content_str)
+        plan_sha = (
+            plan_obj.get("plan", {}).get("sha256")
+            or plan_obj.get("sha256")
+            or calculate_sha256(canonical_json(plan_obj))
+        )
         plan_content = plan_obj.get("plan", {}).get("content", {})
         budget_info = plan_content.get("budget", {})
         budget_val = str(budget_info.get("limit", suite_run.approveBudget))
