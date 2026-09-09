@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": 1,
+  "os": {
+    "distribution": "ubuntu",
+    "release": "26.04",
+    "architectures": ["amd64", "arm64"]
+  },
+  "apt": {
+    "packages": [
+      "ca-certificates",
+      "curl",
+      "wget",
+      "git",
+      "openssh-client",
+      "jq",
+      "tar",
+      "unzip",
+      "zip",
+      "xz-utils",
+      "rsync",
+      "openjdk-21-jdk-headless",
+      "build-essential",
+      "python3",
+      "python3-venv",
+      "python3-pip",
+      "nodejs",
+      "npm",
+      "golang-go",
+      "procps",
+      "psmisc",
+      "lsof",
+      "acl",
+      "util-linux",
+      "locales",
+      "tzdata"
+    ]
+  },
+  "toolchain": {
+    "java": {
+      "majorVersion": 21,
+      "requireSameJdk": true
+    },
+    "python": {
+      "minVersion": "3.11.0"
+    },
+    "node": {
+      "minVersion": "18.0.0"
+    },
+    "go": {
+      "minVersion": "1.20.0"
+    },
+    "git": {
+      "minVersion": "2.30.0"
+    }
+  },
+  "system": {
+    "requiredLocale": "C.UTF-8",
+    "limitNofile": 65536,
+    "user": "haifa-eval",
+    "requiredTmpfs": ["/run"]
+  }
+}

@@ -1,0 +1,48 @@
+schemaVersion: 1
+runId: zhipu-glm53-ubuntu-20260909-001
+
+target:
+  address: 203.0.113.10
+  port: 22
+  user: eval-admin
+  hostKeySha256: SHA256:fakeHostKeyFingerprint1234567890abcdefghij
+  sshPrivateKeyFileEnv: HAIFA_EVAL_HOST_SSH_KEY_FILE
+  requirePasswordlessSudo: true
+
+source:
+  githubPrivateKeyFileEnv: HAIFA_EVAL_GITHUB_SSH_KEY_FILE
+  repositories:
+    product:
+      url: git@github.com:haifa-ai/haifa-agent.git
+      commit: 0123456789abcdef0123456789abcdef01234567
+    docs:
+      url: git@github.com:haifa-ai/haifa-agent-internal-docs.git
+      commit: 1123456789abcdef0123456789abcdef01234567
+    testConfig:
+      url: git@github.com:haifa-ai/haifa-agent-test-config.git
+      commit: 2123456789abcdef0123456789abcdef01234567
+
+evaluation:
+  kind: haifa-harness
+  providerId: zhipu
+  modelId: glm-5.3-flash
+  agentProfileRef: coding-zhipu-glm53-flash
+  requiredSecretEnvironmentNames:
+    - BIGMODEL_API_KEY
+    - ALIYUN_IQS_API_KEY
+  runs:
+    - id: cp-smoke
+      suite: critical-path-smoke-v1
+      platform: linux-primary
+      approveBudget: "5"
+      reportRole: admission
+    - id: cp-regression
+      suite: critical-path-regression-v1
+      platform: linux-primary
+      approveBudget: "20"
+      reportRole: formal
+
+output:
+  remoteEvidenceRoot: /var/lib/haifa-eval/evidence
+  localResultRoot: D:/haifa-agent-eval-results
+  retainRemoteEvidenceAfterPull: true
