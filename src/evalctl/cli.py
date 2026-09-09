@@ -7,6 +7,7 @@ import os
 import sys
 from pathlib import Path
 
+from evalctl.config.env import load_env_file
 from evalctl.config.loader import load_run_request
 from evalctl.core.cleanup import perform_run_cleanup
 from evalctl.core.errors import EvalctlError
@@ -44,70 +45,96 @@ def get_transport(request, local_run_dir: Path) -> SSHTransport:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    common_parser = argparse.ArgumentParser(add_help=False)
+    common_parser.add_argument(
+        "--env-file",
+        default=argparse.SUPPRESS,
+        help="Path to .env credential file (defaults to ./.env in current directory if present)",
+    )
+
     parser = argparse.ArgumentParser(
         prog="evalctl",
         description="Haifa Agent Fresh Machine Evaluation Control Plane",
+        parents=[common_parser],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # request validate
-    p_req = subparsers.add_parser("request", help="Run Request operations")
+    p_req = subparsers.add_parser("request", help="Run Request operations", parents=[common_parser])
     req_subs = p_req.add_subparsers(dest="subcommand", required=True)
-    p_req_val = req_subs.add_parser("validate", help="Validate a Run Request YAML file")
+    p_req_val = req_subs.add_parser(
+        "validate", help="Validate a Run Request YAML file", parents=[common_parser]
+    )
     p_req_val.add_argument("--file", required=True, help="Path to Run Request YAML")
 
     # host trust / doctor / bootstrap
-    p_host = subparsers.add_parser("host", help="Host operations")
+    p_host = subparsers.add_parser("host", help="Host operations", parents=[common_parser])
     host_subs = p_host.add_subparsers(dest="subcommand", required=True)
 
-    p_host_trust = host_subs.add_parser("trust", help="Verify or discover remote host key")
+    p_host_trust = host_subs.add_parser(
+        "trust", help="Verify or discover remote host key", parents=[common_parser]
+    )
     p_host_trust.add_argument("--file", required=True, help="Path to Run Request YAML")
 
-    p_host_doc = host_subs.add_parser("doctor", help="Run read-only preflight on remote host")
+    p_host_doc = host_subs.add_parser(
+        "doctor", help="Run read-only preflight on remote host", parents=[common_parser]
+    )
     p_host_doc.add_argument("--file", required=True, help="Path to Run Request YAML")
 
     p_host_boot = host_subs.add_parser(
-        "bootstrap", help="Bootstrap packages and toolchain on remote host"
+        "bootstrap", help="Bootstrap packages and toolchain on remote host", parents=[common_parser]
     )
     p_host_boot.add_argument("--file", required=True, help="Path to Run Request YAML")
 
     # source prepare
-    p_src = subparsers.add_parser("source", help="Source management")
+    p_src = subparsers.add_parser("source", help="Source management", parents=[common_parser])
     src_subs = p_src.add_subparsers(dest="subcommand", required=True)
-    p_src_prep = src_subs.add_parser("prepare", help="Clone and pin exact commits on remote")
+    p_src_prep = src_subs.add_parser(
+        "prepare", help="Clone and pin exact commits on remote", parents=[common_parser]
+    )
     p_src_prep.add_argument("--file", required=True, help="Path to Run Request YAML")
 
     # plan
-    p_plan = subparsers.add_parser("plan", help="Generate Harness execution plan and Plan Set")
+    p_plan = subparsers.add_parser(
+        "plan", help="Generate Harness execution plan and Plan Set", parents=[common_parser]
+    )
     p_plan.add_argument("--file", required=True, help="Path to Run Request YAML")
 
     # run
-    p_run = subparsers.add_parser("run", help="Execute approved evaluation run")
+    p_run = subparsers.add_parser(
+        "run", help="Execute approved evaluation run", parents=[common_parser]
+    )
     p_run.add_argument("--file", required=True, help="Path to Run Request YAML")
     p_run.add_argument(
         "--approved-plan-set", required=True, help="SHA-256 digest of approved plan-set.json"
     )
 
     # status
-    p_stat = subparsers.add_parser("status", help="Check run status")
+    p_stat = subparsers.add_parser("status", help="Check run status", parents=[common_parser])
     p_stat.add_argument("--file", required=True, help="Path to Run Request YAML")
 
     # logs
-    p_logs = subparsers.add_parser("logs", help="View journal logs")
+    p_logs = subparsers.add_parser("logs", help="View journal logs", parents=[common_parser])
     p_logs.add_argument("--file", required=True, help="Path to Run Request YAML")
     p_logs.add_argument("--follow", action="store_true", help="Follow live output")
 
     # collect
-    p_col = subparsers.add_parser("collect", help="Pull and verify evidence root")
+    p_col = subparsers.add_parser(
+        "collect", help="Pull and verify evidence root", parents=[common_parser]
+    )
     p_col.add_argument("--file", required=True, help="Path to Run Request YAML")
 
     # report
-    p_rep = subparsers.add_parser("report", help="Generate deterministic evaluation report")
+    p_rep = subparsers.add_parser(
+        "report", help="Generate deterministic evaluation report", parents=[common_parser]
+    )
     p_rep.add_argument("--file", required=True, help="Path to Run Request YAML")
     p_rep.add_argument("--format", choices=["terminal", "json", "markdown"], default="terminal")
 
     # cleanup
-    p_cln = subparsers.add_parser("cleanup", help="Safely clean up remote run worktree and units")
+    p_cln = subparsers.add_parser(
+        "cleanup", help="Safely clean up remote run worktree and units", parents=[common_parser]
+    )
     p_cln.add_argument("--file", required=True, help="Path to Run Request YAML")
     p_cln.add_argument(
         "--include-evidence", action="store_true", help="Also remove remote evidence"
@@ -122,6 +149,10 @@ def main(args: list[str] | None = None) -> int:
     parsed = parser.parse_args(args)
 
     try:
+        # Automatically load .env (defaults to ./.env if present, or specified --env-file)
+        loaded_env_path = load_env_file(getattr(parsed, "env_file", None))
+        if loaded_env_path and getattr(parsed, "env_file", None):
+            print(f"[evalctl] Loaded environment from: {loaded_env_path}")
         if parsed.command == "request" and parsed.subcommand == "validate":
             request, _, sha = load_run_request(parsed.file, validate_local_keys=False)
             print(f"[evalctl] Run Request valid: runId='{request.runId}', canonicalSha256='{sha}'")
