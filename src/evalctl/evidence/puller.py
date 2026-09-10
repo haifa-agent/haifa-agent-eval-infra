@@ -64,7 +64,8 @@ def pull_and_verify_evidence(
             'chmod a+r "$REMOTE_DIR/manifest.sha256"\n'
         )
         transport.run_command(
-            ["sudo", "bash", "-c", populate_script, "_", remote_evidence_dir, request.runId],
+            ["sudo", "bash", "-s", "--", remote_evidence_dir, request.runId],
+            stdin_data=populate_script,
             timeout=120,
         )
         res_check = transport.run_command(["test", "-d", remote_evidence_dir], timeout=15)

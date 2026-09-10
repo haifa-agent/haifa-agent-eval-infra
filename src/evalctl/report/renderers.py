@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
+
+from evalctl.report.html_generator import generate_html_report
 
 
 def render_json(report_data: dict[str, Any]) -> str:
@@ -42,9 +45,11 @@ def render_terminal(report_data: dict[str, Any]) -> str:
         )
         lines.append(f"  Result:   {'PASS' if ad.get('passed') else 'FAIL'}")
         agg = ad.get("aggregates", {})
+        cost_sym = "¥" if report_data.get("providerId") == "zhipu" else "$"
+        cost_code = "CNY" if report_data.get("providerId") == "zhipu" else "USD"
         lines.append(
             f"  Metrics:  Tokens in/out: {agg.get('inputTokens')}/{agg.get('outputTokens')} | "
-            f"Est. Cost: ${agg.get('estimatedCostUsd')} USD"
+            f"Est. Cost: {cost_sym}{agg.get('estimatedCostUsd')} {cost_code}"
         )
 
     lines.append(f"{bold}===================================================={reset}\n")
@@ -103,8 +108,10 @@ def render_markdown(report_data: dict[str, Any]) -> str:
         md.append(f"- **Model Calls**: {agg.get('modelCalls')}")
         md.append(f"- **Tool Calls**: {agg.get('toolCalls')}")
         md.append(f"- **Total Duration**: {agg.get('totalDurationSeconds')}s")
+        cost_sym = "¥" if report_data.get("providerId") == "zhipu" else "$"
+        cost_code = "CNY" if report_data.get("providerId") == "zhipu" else "USD"
         md.append(
-            f"- **Estimated Cost**: ${agg.get('estimatedCostUsd')} USD (Known: {agg.get('providerReportedCostKnown')})\n"
+            f"- **Estimated Cost**: {cost_sym}{agg.get('estimatedCostUsd')} {cost_code} (Known: {agg.get('providerReportedCostKnown')})\n"
         )
 
         md.append("### Phase Breakdown")
@@ -129,3 +136,8 @@ def render_markdown(report_data: dict[str, Any]) -> str:
                 )
 
     return "\n".join(md)
+
+
+def render_html(report_data: dict[str, Any], local_run_dir: Path) -> str:
+    """Renders interactive self-contained HTML report."""
+    return generate_html_report(report_data, local_run_dir)

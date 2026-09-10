@@ -136,7 +136,9 @@ def build_parser() -> argparse.ArgumentParser:
         "report", help="Generate deterministic evaluation report", parents=[common_parser]
     )
     p_rep.add_argument("--file", required=True, help="Path to Run Request YAML")
-    p_rep.add_argument("--format", choices=["terminal", "json", "markdown"], default="terminal")
+    p_rep.add_argument(
+        "--format", choices=["terminal", "json", "markdown", "html"], default="terminal"
+    )
 
     # cleanup
     p_cln = subparsers.add_parser(
@@ -327,6 +329,9 @@ def main(args: list[str] | None = None) -> int:
                 print(render_json(report_data))
             elif parsed.format == "markdown":
                 print(render_markdown(report_data))
+            elif parsed.format == "html":
+                html_path = local_run_dir / "report.html"
+                print(f"[evalctl] Interactive HTML report available at: {html_path.resolve()}")
             else:
                 print(render_terminal(report_data))
             return 0

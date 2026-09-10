@@ -28,6 +28,11 @@ evaluation:
   requiredSecretEnvironmentNames:
     - BIGMODEL_API_KEY
     - ALIYUN_IQS_API_KEY
+  sidecars:
+    - name: utility-mcp
+      port: 20002
+      healthPath: /actuator/health
+      serviceName: haifa-utility-mcp
   runs:
     - id: ad-phase-1
       suite: autonomous-delivery-phase-1-v1

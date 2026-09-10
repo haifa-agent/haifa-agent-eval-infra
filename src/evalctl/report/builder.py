@@ -101,10 +101,13 @@ def build_evaluation_report(
         "autonomousDelivery": ad_summary,
     }
 
-    # Persist report.json and report.md
+    # Persist report.json, report.md, and interactive report.html
     (local_run_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    from evalctl.report.renderers import render_markdown
+    from evalctl.report.renderers import render_html, render_markdown
 
     (local_run_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
+    (local_run_dir / "report.html").write_text(
+        render_html(report, local_run_dir), encoding="utf-8"
+    )
 
     return report

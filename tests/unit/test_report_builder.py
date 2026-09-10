@@ -135,3 +135,12 @@ def test_build_evaluation_report_autonomous_delivery(
     md = render_markdown(report)
     assert "### Case Details" in md
     assert "| `PHASE_2` | `03` | 1 | `PASS` | `PASS` |" in md
+
+    # Verify report.html was generated
+    html_file = run_dir / "report.html"
+    assert html_file.is_file()
+    html_text = html_file.read_text(encoding="utf-8")
+    assert "Haifa Agent" in html_text
+    assert "Case 03" in html_text
+    assert "PHASE_1" in html_text
+    assert "PHASE_2" in html_text

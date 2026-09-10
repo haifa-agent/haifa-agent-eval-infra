@@ -7,7 +7,7 @@ EVAL_USER="${1:-$USER}"
 PACKAGES=(
   ca-certificates curl wget git openssh-client
   jq tar unzip zip xz-utils rsync
-  openjdk-21-jdk-headless build-essential
+  openjdk-21-jdk-headless maven build-essential
   python3 python3-venv python3-pip
   nodejs npm golang-go
   procps psmisc lsof acl util-linux locales tzdata

@@ -90,3 +90,20 @@ def test_repo_neither_commit_nor_branch_fails(sample_request_path: Path):
     # Neither commit nor branch
     with pytest.raises(RequestValidationError, match="must specify either 'commit' .* or 'branch'"):
         RunRequest.model_validate(raw)
+
+
+def test_sidecar_declaration_in_schema(sample_request_path: Path):
+    raw = yaml.safe_load(sample_request_path.read_text(encoding="utf-8"))
+    raw["evaluation"]["sidecars"] = [
+        {
+            "name": "utility-mcp",
+            "port": 20002,
+            "healthPath": "/actuator/health",
+            "serviceName": "haifa-utility-mcp",
+        }
+    ]
+    req = RunRequest.model_validate(raw)
+    assert len(req.evaluation.sidecars) == 1
+    assert req.evaluation.sidecars[0].name == "utility-mcp"
+    assert req.evaluation.sidecars[0].port == 20002
+    assert req.evaluation.sidecars[0].healthPath == "/actuator/health"

@@ -120,12 +120,21 @@ class SuiteRunSpec(BaseModel):
     reportRole: Literal["admission", "formal"] = "formal"
 
 
+class SidecarConfig(BaseModel):
+    name: str
+    port: int
+    healthPath: str = "/actuator/health"
+    serviceName: str | None = None
+    required: bool = True
+
+
 class EvaluationConfig(BaseModel):
     kind: Literal["haifa-harness", "haifa-evals-harbor"] = "haifa-harness"
     providerId: str
     modelId: str
     agentProfileRef: str
     requiredSecretEnvironmentNames: list[str] = Field(default_factory=list)
+    sidecars: list[SidecarConfig] = Field(default_factory=list)
     runs: list[SuiteRunSpec] = Field(default_factory=list)
 
 
