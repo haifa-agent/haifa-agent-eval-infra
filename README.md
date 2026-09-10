@@ -55,3 +55,40 @@ evalctl report --file <request> [--format terminal|json|markdown]
 # 12. 远端环境清理：安全停止并清理远端瞬态单元与代码树（默认严格校验本地证据完整收据）
 evalctl cleanup --file <request> [--include-evidence] [--force]
 ```
+
+## 评测主机生命周期管理（阿里云 ROS 抢占式实例）
+
+控制面在 `infra/ros/` 目录下提供了基于阿里云资源编排（ROS）的标准模板与生命周期管理工具，用于极速拉取超低成本的全新抢占式（Spot）Ubuntu 主机，并在评测结束后彻底销毁释放。
+
+### 1. 配置参数准备
+复制配置模板并配置本地实际的 VPC、交换机、安全组与 SSH 密钥对（`parameters.yaml` 已加入 `.gitignore`，防止敏感 ID 提交到代码仓）：
+```bash
+cp infra/ros/parameters.example.yaml infra/ros/parameters.yaml
+# 根据实际网络与安全组配置编辑 parameters.yaml
+```
+
+### 2. 模板与参数合法性校验
+```bash
+python infra/ros/manager.py validate
+```
+
+### 3. 一键拉起抢占式主机（自动同步 IP 到 `.env`）
+```bash
+python infra/ros/manager.py up
+```
+- **自动同步**：等待实例创建成功后，会自动将公网 IP 写入本地 `.env` 的 `TARGET_HOST_IP` 项，可立即无缝对接后续 `evalctl` 命令。
+- **参数选项**：
+  - `--no-sync-env`：跳过写入 `.env` 文件。
+  - `--no-wait`：发起创建请求后不阻塞等待（异步创建）。
+  - `--timeout <seconds>`：等待创建完成的超时秒数（默认 300 秒）。
+
+### 4. 查看当前活跃主机状态
+```bash
+python infra/ros/manager.py status
+```
+
+### 5. 评测完成一键销毁释放
+```bash
+python infra/ros/manager.py down
+```
+- 自动销毁由当前栈管理的所有 ECS 抢占式实例及关联系统盘，杜绝闲置费用产生。

@@ -1,0 +1,26 @@
+# ==============================================================================
+# Haifa Agent Evaluation - ROS Spot Instance Parameters Example
+# 复制本文件为 parameters.yaml 并填写真实的云上资源 ID（parameters.yaml 已在 .gitignore 中）
+#   cp infra/ros/parameters.example.yaml infra/ros/parameters.yaml
+# ==============================================================================
+
+RegionId: cn-hangzhou
+StackNamePrefix: haifa-eval-spot
+
+# 对应 ROS 模板中的 Parameters 声明
+Parameters:
+  VpcId: vpc-xxxxxxxxxxxxxxxxx
+  VSwitchId: vsw-xxxxxxxxxxxxxxxxx
+  SecurityGroupId: sg-xxxxxxxxxxxxxxxxx
+  KeyPairName: haifa-agent-tmp
+  ZoneId: cn-hangzhou-e
+  InstanceType: ecs.sn1.large
+  ImageId: ubuntu_26_04_x64_20G_alibase_20260828.vhd
+  SystemDiskCategory: cloud_efficiency
+  SystemDiskSize: 60
+  InternetMaxBandwidthOut: 50
+  SpotStrategy: SpotAsPriceGo
+  SpotInterruptionBehavior: Stop
+  InstanceCount: 1
+  InstanceName: haifa-eval-spot-worker
+  HostName: haifa-worker

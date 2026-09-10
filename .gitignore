@@ -25,3 +25,7 @@ results/
 !.env.example
 *.env
 secrets.env
+
+# Cloud Infrastructure Parameters & State
+infra/ros/parameters.yaml
+infra/ros/.active_stack.json

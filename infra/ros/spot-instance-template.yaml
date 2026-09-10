@@ -1,0 +1,131 @@
+ROSTemplateFormatVersion: '2015-09-01'
+Description: Haifa Agent Evaluation Preemptible (Spot) ECS Instance Group Template
+
+Parameters:
+  VpcId:
+    Type: String
+    Description: VPC ID where the instance will be launched
+  VSwitchId:
+    Type: String
+    Description: VSwitch ID belonging to the specified ZoneId
+  SecurityGroupId:
+    Type: String
+    Description: Security Group ID allowing SSH (port 22)
+  KeyPairName:
+    Type: String
+    Description: Name of the SSH key pair bound to the instance
+  ZoneId:
+    Type: String
+    Default: cn-hangzhou-e
+    Description: Availability Zone ID
+  InstanceType:
+    Type: String
+    Default: ecs.sn1.large
+    Description: ECS Instance specification
+  ImageId:
+    Type: String
+    Default: ubuntu_26_04_x64_20G_alibase_20260828.vhd
+    Description: Ubuntu OS Image ID
+  SystemDiskCategory:
+    Type: String
+    Default: cloud_efficiency
+    AllowedValues:
+      - cloud_efficiency
+      - cloud_essd
+      - cloud_auto
+    Description: System disk category
+  SystemDiskSize:
+    Type: Number
+    Default: 60
+    MinValue: 20
+    MaxValue: 500
+    Description: System disk size in GB
+  InternetMaxBandwidthOut:
+    Type: Number
+    Default: 50
+    MinValue: 1
+    MaxValue: 100
+    Description: Peak outbound public bandwidth in Mbps
+  SpotStrategy:
+    Type: String
+    Default: SpotAsPriceGo
+    AllowedValues:
+      - SpotAsPriceGo
+      - SpotWithPriceLimit
+      - NoSpot
+    Description: Preemptible spot strategy
+  SpotInterruptionBehavior:
+    Type: String
+    Default: Stop
+    AllowedValues:
+      - Stop
+      - Terminate
+    Description: Preemptible interruption behavior (Stop or Terminate)
+  InstanceCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: Number of instances to launch
+  InstanceName:
+    Type: String
+    Default: haifa-eval-worker
+    Description: ECS instance name
+  HostName:
+    Type: String
+    Default: haifa-worker
+    Description: OS hostname
+
+Resources:
+  EvaluationInstanceGroup:
+    Type: ALIYUN::ECS::InstanceGroup
+    DeletionPolicy: Delete
+    Properties:
+      DeletionProtection: false
+      InstanceChargeType: PostPaid
+      SpotStrategy:
+        Ref: SpotStrategy
+      SpotInterruptionBehavior:
+        Ref: SpotInterruptionBehavior
+      ZoneId:
+        Ref: ZoneId
+      VpcId:
+        Ref: VpcId
+      VSwitchId:
+        Ref: VSwitchId
+      SecurityGroupIds:
+        - Ref: SecurityGroupId
+      KeyPairName:
+        Ref: KeyPairName
+      InstanceType:
+        Ref: InstanceType
+      ImageId:
+        Ref: ImageId
+      IoOptimized: optimized
+      SystemDiskCategory:
+        Ref: SystemDiskCategory
+      SystemDiskSize:
+        Ref: SystemDiskSize
+      InternetChargeType: PayByTraffic
+      InternetMaxBandwidthOut:
+        Ref: InternetMaxBandwidthOut
+      MaxAmount:
+        Ref: InstanceCount
+      InstanceName:
+        Ref: InstanceName
+      HostName:
+        Ref: HostName
+
+Outputs:
+  InstanceIds:
+    Description: The instance IDs of the created spot instances
+    Value:
+      Fn::GetAtt:
+        - EvaluationInstanceGroup
+        - InstanceIds
+  PublicIps:
+    Description: Public IP addresses of the created spot instances
+    Value:
+      Fn::GetAtt:
+        - EvaluationInstanceGroup
+        - PublicIps
