@@ -1,4 +1,4 @@
-"""Tests for deterministic report builder and renderers."""
+"""Tests for the deterministic ladder report builder and renderers."""
 
 from __future__ import annotations
 
@@ -10,34 +10,28 @@ from evalctl.report.builder import build_evaluation_report
 from evalctl.report.renderers import render_json, render_markdown, render_terminal
 
 
-def test_build_evaluation_report_cp_pass(sample_request_path: Path, tmp_path: Path):
-    req, _, _ = load_run_request(
-        sample_request_path, validate_local_keys=False, validate_local_result_root=False
-    )
-    run_dir = tmp_path / req.runId
+def _write_evidence(run_dir: Path, records: list[dict], scan_status: str = "CLEAN") -> None:
     evidence_dir = run_dir / "evidence"
     control_dir = run_dir / "control"
     evidence_dir.mkdir(parents=True)
     control_dir.mkdir(parents=True)
 
-    # Mock secret-scan.json
     (evidence_dir / "secret-scan.json").write_text(
-        json.dumps({"status": "CLEAN"}), encoding="utf-8"
+        json.dumps({"status": scan_status, "violations": [] if scan_status == "CLEAN" else ["x"]}),
+        encoding="utf-8",
     )
-
-    # Mock run-result.json with Critical Path results
-    run_result = {
-        "suiteId": "critical-path-regression-v1",
-        "cases": [
-            {"id": "CP-01", "status": "PASS", "repetition": 1},
-            {"id": "CP-02", "status": "PASS", "repetition": 1},
-        ],
-        "processTreeNaturalExit": True,
-        "repositoryStateStable": True,
+    ladder_report = {
+        "schemaVersion": 1,
+        "mode": "agent",
+        "caseSet": "ladder-v1",
+        "repeat": 1,
+        "levels": {"L1": {"cases": 2, "runs": len(records), "passedRuns": sum(1 for r in records if r.get("accepted"))}},
+        "evaluation": {"mode": "agent", "model": "glm-5.3-flash", "caseSet": "ladder-v1"},
     }
-    (evidence_dir / "run-result.json").write_text(json.dumps(run_result), encoding="utf-8")
-
-    # Mock source-manifest.json
+    (evidence_dir / "ladder-report.json").write_text(json.dumps(ladder_report), encoding="utf-8")
+    (evidence_dir / "run-records.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8"
+    )
     (control_dir / "source-manifest.json").write_text(
         json.dumps(
             {
@@ -49,98 +43,73 @@ def test_build_evaluation_report_cp_pass(sample_request_path: Path, tmp_path: Pa
         encoding="utf-8",
     )
 
+
+def _record(case_id: str, accepted: bool) -> dict:
+    return {
+        "caseId": case_id,
+        "level": "L1",
+        "attempt": 1,
+        "status": "PASSED" if accepted else "FAILED",
+        "accepted": accepted,
+        "expected": accepted,
+        "durationMillis": 1000,
+        "agentDurationMillis": 900,
+        "agentExitCode": 0,
+        "checks": {"functional.a": accepted},
+        "failures": [] if accepted else ["functional.a: assertion failed"],
+        "contractProblems": [],
+    }
+
+
+def test_build_evaluation_report_pass(sample_request_path: Path, tmp_path: Path):
+    req, _, _ = load_run_request(
+        sample_request_path, validate_local_keys=False, validate_local_result_root=False
+    )
+    run_dir = tmp_path / req.runId
+    _write_evidence(run_dir, [_record("L1-01", True), _record("L1-02", True)])
+
     report = build_evaluation_report(req, run_dir)
     assert report["status"] == "COMPLETE_PASS"
-    assert report["criticalPath"]["coverage"] == "2/2"
-    assert report["criticalPath"]["passed"] is True
+    assert report["ladder"]["score"] == "2/2"
+    assert report["ladder"]["passed"] is True
+    assert report["caseSet"] == "ladder-v1"
 
     term_out = render_terminal(report)
     assert "COMPLETE_PASS" in term_out
-    assert "CP-01" not in term_out or "Critical Path" in term_out
+    assert "L1" in term_out
 
     md_out = render_markdown(report)
-    assert "# Haifa Agent Evaluation Report" in md_out
-    assert "| `CP-01` | 1 | `PASS` | - |" in md_out
+    assert "# Haifa Agent Ladder Report" in md_out
+    assert "`L1-01`" in md_out
 
     json_out = render_json(report)
     assert "COMPLETE_PASS" in json_out
 
+    assert (run_dir / "report.html").is_file()
 
-def test_build_evaluation_report_secret_scan_failed_marks_invalid_evidence(
+
+def test_build_evaluation_report_secret_scan_failed_marks_invalid(
     sample_request_path: Path, tmp_path: Path
 ):
     req, _, _ = load_run_request(
         sample_request_path, validate_local_keys=False, validate_local_result_root=False
     )
     run_dir = tmp_path / req.runId
-    evidence_dir = run_dir / "evidence"
-    evidence_dir.mkdir(parents=True)
-
-    # Bad secret scan
-    (evidence_dir / "secret-scan.json").write_text(
-        json.dumps({"status": "VIOLATION", "violations": ["API_KEY"]}), encoding="utf-8"
-    )
-    (evidence_dir / "run-result.json").write_text(
-        json.dumps({"cases": [{"id": "CP-01", "status": "PASS"}]}), encoding="utf-8"
-    )
+    _write_evidence(run_dir, [_record("L1-01", True)], scan_status="VIOLATION")
 
     report = build_evaluation_report(req, run_dir)
     assert report["status"] == "INVALID_EVIDENCE"
 
 
-def test_build_evaluation_report_autonomous_delivery(
-    sample_request_path: Path, tmp_path: Path
-):
+def test_build_evaluation_report_with_failures(sample_request_path: Path, tmp_path: Path):
     req, _, _ = load_run_request(
         sample_request_path, validate_local_keys=False, validate_local_result_root=False
     )
     run_dir = tmp_path / req.runId
-    evidence_dir = run_dir / "evidence"
-    evidence_dir.mkdir(parents=True)
-
-    (evidence_dir / "secret-scan.json").write_text(
-        json.dumps({"status": "CLEAN"}), encoding="utf-8"
-    )
-
-    phase1 = {
-        "suiteType": "autonomous-delivery",
-        "phase": "PHASE_1",
-        "cases": [
-            {"id": "01", "gatePassed": True, "repetition": 1},
-            {"id": "02", "gatePassed": False, "repetition": 1},
-        ],
-        "usageSummary": {"estimatedCostMinorUnits": 100},
-    }
-    phase2 = {
-        "suiteType": "autonomous-delivery",
-        "nativeResult": {
-            "phase": "PHASE_2",
-            "results": [
-                {"caseId": "03", "gatePassed": True, "repetition": 1, "acceptancePassed": True},
-            ],
-        },
-        "usageSummary": {"estimatedCostMinorUnits": 200},
-    }
-    (evidence_dir / "ad-phase-1.json").write_text(json.dumps(phase1), encoding="utf-8")
-    (evidence_dir / "ad-phase-2.json").write_text(json.dumps(phase2), encoding="utf-8")
-    (evidence_dir / "run-result.json").write_text(json.dumps(phase2), encoding="utf-8")
+    _write_evidence(run_dir, [_record("L1-01", True), _record("L1-02", False)])
 
     report = build_evaluation_report(req, run_dir)
     assert report["status"] == "COMPLETE_WITH_FAILURES"
-    assert report["autonomousDelivery"]["combinedScore"] == "2/3"
-    assert len(report["autonomousDelivery"]["cases"]) == 3
-    assert report["autonomousDelivery"]["phases"]["PHASE_1"]["passed"] == 1
-    assert report["autonomousDelivery"]["phases"]["PHASE_2"]["passed"] == 1
-
-    md = render_markdown(report)
-    assert "### Case Details" in md
-    assert "| `PHASE_2` | `03` | 1 | `PASS` | `PASS` |" in md
-
-    # Verify report.html was generated
-    html_file = run_dir / "report.html"
-    assert html_file.is_file()
-    html_text = html_file.read_text(encoding="utf-8")
-    assert "Haifa Agent" in html_text
-    assert "Case 03" in html_text
-    assert "PHASE_1" in html_text
-    assert "PHASE_2" in html_text
+    assert report["ladder"]["score"] == "1/2"
+    assert report["ladder"]["passed"] is False
+    assert report["ladder"]["cases"][1]["failures"] == ["functional.a: assertion failed"]

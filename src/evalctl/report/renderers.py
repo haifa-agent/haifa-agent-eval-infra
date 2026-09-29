@@ -1,12 +1,10 @@
-"""Report formatters for Terminal ANSI, JSON, and Markdown."""
+"""Report formatters for Terminal ANSI, JSON, Markdown, and HTML."""
 
 from __future__ import annotations
 
+import html
 import json
-from pathlib import Path
 from typing import Any
-
-from evalctl.report.html_generator import generate_html_report
 
 
 def render_json(report_data: dict[str, Any]) -> str:
@@ -23,34 +21,33 @@ def render_terminal(report_data: dict[str, Any]) -> str:
 
     lines = [
         f"{bold}===================================================={reset}",
-        f"{bold} HAIFA AGENT EVALUATION REPORT: {report_data.get('runId')}{reset}",
+        f"{bold} HAIFA AGENT LADDER REPORT: {report_data.get('runId')}{reset}",
         f"{bold} Status: {color}{status}{reset}",
         f"{bold} Model:  {report_data.get('modelId')} ({report_data.get('providerId')}){reset}",
-        f"{bold} Profile: {report_data.get('agentProfileRef')}{reset}",
+        f"{bold} Case Set: {report_data.get('caseSet')}{reset}",
         f"{bold}===================================================={reset}",
     ]
 
-    cp = report_data.get("criticalPath")
-    if cp:
-        lines.append(f"\n{bold}[Critical Path]{reset}")
-        lines.append(f"  Suite:    {cp.get('suiteId')} ({cp.get('role')})")
-        lines.append(f"  Score:    {cp.get('coverage')}")
-        lines.append(f"  Result:   {'PASS' if cp.get('passed') else 'FAIL'}")
-
-    ad = report_data.get("autonomousDelivery")
-    if ad:
-        lines.append(f"\n{bold}[Autonomous Delivery]{reset}")
-        lines.append(
-            f"  Score:    {ad.get('combinedScore')} (Full 26: {ad.get('hasFull26Coverage')})"
-        )
-        lines.append(f"  Result:   {'PASS' if ad.get('passed') else 'FAIL'}")
-        agg = ad.get("aggregates", {})
-        cost_sym = "¥" if report_data.get("providerId") == "zhipu" else "$"
-        cost_code = "CNY" if report_data.get("providerId") == "zhipu" else "USD"
-        lines.append(
-            f"  Metrics:  Tokens in/out: {agg.get('inputTokens')}/{agg.get('outputTokens')} | "
-            f"Est. Cost: {cost_sym}{agg.get('estimatedCostUsd')} {cost_code}"
-        )
+    ladder = report_data.get("ladder")
+    if ladder:
+        lines.append(f"\n{bold}[Autonomous Delivery Ladder]{reset}")
+        lines.append(f"  Mode:     {ladder.get('mode')}")
+        lines.append(f"  Score:    {ladder.get('score')} ({ladder.get('passRate')})")
+        lines.append(f"  Result:   {'PASS' if ladder.get('passed') else 'FAIL'}")
+        counts = ladder.get("statusCounts", {})
+        if counts:
+            lines.append(
+                "  Runs:     "
+                + ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+            )
+        levels = ladder.get("levels", {})
+        for level_name, info in sorted(levels.items()):
+            lines.append(
+                f"    {level_name}: passed {info.get('passedRuns')}/{info.get('runs')}"
+            )
+        usage = ladder.get("usageTotals")
+        if usage:
+            lines.append(f"  Usage:    {json.dumps(usage, ensure_ascii=False)}")
 
     lines.append(f"{bold}===================================================={reset}\n")
     return "\n".join(lines)
@@ -60,16 +57,13 @@ def render_markdown(report_data: dict[str, Any]) -> str:
     """Renders a comprehensive GitHub Flavored Markdown report."""
     run_id = report_data.get("runId", "")
     status = report_data.get("status", "")
-    provider_id = report_data.get("providerId", "")
-    model_id = report_data.get("modelId", "")
-    profile = report_data.get("agentProfileRef", "")
 
     md = [
-        f"# Haifa Agent Evaluation Report: `{run_id}`\n",
+        f"# Haifa Agent Ladder Report: `{run_id}`\n",
         f"- **Status**: `{status}`",
-        f"- **Provider**: `{provider_id}`",
-        f"- **Model**: `{model_id}`",
-        f"- **Agent Profile**: `{profile}`",
+        f"- **Provider**: `{report_data.get('providerId')}`",
+        f"- **Model**: `{report_data.get('modelId')}`",
+        f"- **Case Set**: `{report_data.get('caseSet')}`",
         f"- **Evaluated At**: {report_data.get('evaluatedAt', '')}\n",
         "## Source Commits",
         "| Repository | Commit SHA |",
@@ -78,66 +72,64 @@ def render_markdown(report_data: dict[str, Any]) -> str:
 
     repos = report_data.get("repositories", {})
     for repo_name, repo_info in repos.items():
-        md.append(f"| `{repo_name}` | `{repo_info.get('commit', '')}` |")
+        commit = repo_info.get("commit", "") if isinstance(repo_info, dict) else repo_info
+        md.append(f"| `{repo_name}` | `{commit}` |")
 
-    cp = report_data.get("criticalPath")
-    if cp:
-        md.append("\n## Critical Path Evaluation")
-        md.append(f"- **Suite**: `{cp.get('suiteId')}`")
-        md.append(f"- **Role**: `{cp.get('role')}`")
-        md.append(f"- **Coverage**: `{cp.get('coverage')}`")
-        md.append(f"- **Status**: `{'PASS' if cp.get('passed') else 'FAIL'}`\n")
-        md.append("| Case ID | Repetition | Status | Failure Reason |")
-        md.append("| --- | --- | --- | --- |")
-        for c in cp.get("cases", []):
-            md.append(
-                f"| `{c.get('caseId')}` | {c.get('repetition')} | `{c.get('status')}` | {c.get('failureReason') or '-'} |"
-            )
+    ladder = report_data.get("ladder")
+    if ladder:
+        md.append("\n## Autonomous Delivery Ladder")
+        md.append(f"- **Mode**: `{ladder.get('mode')}`")
+        md.append(f"- **Score**: `{ladder.get('score')}`")
+        md.append(f"- **Pass Rate**: `{ladder.get('passRate')}`")
+        md.append(f"- **Status**: `{'PASS' if ladder.get('passed') else 'FAIL'}`\n")
 
-    ad = report_data.get("autonomousDelivery")
-    if ad:
-        md.append("\n## Autonomous Delivery Evaluation")
-        md.append(f"- **Combined Score**: `{ad.get('combinedScore')}`")
-        md.append(f"- **Full 26 Case Coverage**: `{ad.get('hasFull26Coverage')}`")
-        md.append(f"- **Status**: `{'PASS' if ad.get('passed') else 'FAIL'}`\n")
-
-        agg = ad.get("aggregates", {})
-        md.append("### Resource & Cost Aggregates")
-        md.append(f"- **Input Tokens**: {agg.get('inputTokens'):,}")
-        md.append(f"- **Output Tokens**: {agg.get('outputTokens'):,}")
-        md.append(f"- **Model Calls**: {agg.get('modelCalls')}")
-        md.append(f"- **Tool Calls**: {agg.get('toolCalls')}")
-        md.append(f"- **Total Duration**: {agg.get('totalDurationSeconds')}s")
-        cost_sym = "¥" if report_data.get("providerId") == "zhipu" else "$"
-        cost_code = "CNY" if report_data.get("providerId") == "zhipu" else "USD"
-        md.append(
-            f"- **Estimated Cost**: {cost_sym}{agg.get('estimatedCostUsd')} {cost_code} (Known: {agg.get('providerReportedCostKnown')})\n"
-        )
-
-        md.append("### Phase Breakdown")
-        md.append("| Phase | Evaluated | Passed | Status |")
-        md.append("| --- | --- | --- | --- |")
-        for pname, pinfo in ad.get("phases", {}).items():
-            md.append(
-                f"| `{pname}` | {pinfo.get('evaluated')} | {pinfo.get('passed')} | `{pinfo.get('status')}` |"
-            )
-
-        if ad.get("cases"):
-            md.append("\n### Case Details")
-            md.append(
-                "| Phase | Case ID | Repetition | Gate | Hidden Acceptance | Native Status |"
-            )
-            md.append("| --- | --- | --- | --- | --- | --- |")
-            for c in ad.get("cases", []):
-                gate_str = "PASS" if c.get("gatePassed") else "FAIL"
-                acc_str = "PASS" if c.get("hiddenAcceptance") else "FAIL"
+        levels = ladder.get("levels", {})
+        if levels:
+            md.append("### Level Breakdown")
+            md.append("| Level | Passed | Runs |")
+            md.append("| --- | --- | --- |")
+            for level_name, info in sorted(levels.items()):
                 md.append(
-                    f"| `{c.get('phase')}` | `{c.get('caseId')}` | {c.get('repetition')} | `{gate_str}` | `{acc_str}` | `{c.get('nativeStatus')}` |"
+                    f"| `{level_name}` | {info.get('passedRuns')} | {info.get('runs')} |"
                 )
+            md.append("")
+
+        if ladder.get("cases"):
+            md.append("### Case Results")
+            md.append(
+                "| Case | Level | Attempt | Status | Checks | Agent Exit | Duration (s) |"
+            )
+            md.append("| --- | --- | --- | --- | --- | --- | --- |")
+            for c in ladder.get("cases", []):
+                duration = (c.get("durationMillis") or 0) / 1000.0
+                md.append(
+                    f"| `{c.get('caseId')}` | `{c.get('level')}` | {c.get('attempt')} | "
+                    f"`{c.get('status')}` | {c.get('checksPassed')}/{c.get('checksTotal')} | "
+                    f"{c.get('agentExitCode')} | {duration:.1f} |"
+                )
+
+        usage = ladder.get("usageTotals")
+        if usage:
+            md.append("\n### Resource Usage")
+            for key, value in sorted(usage.items()):
+                md.append(f"- **{key}**: {value}")
 
     return "\n".join(md)
 
 
-def render_html(report_data: dict[str, Any], local_run_dir: Path) -> str:
-    """Renders interactive self-contained HTML report."""
-    return generate_html_report(report_data, local_run_dir)
+def render_html(report_data: dict[str, Any]) -> str:
+    """Renders a minimal self-contained HTML report."""
+    run_id = html.escape(str(report_data.get("runId", "")))
+    status = html.escape(str(report_data.get("status", "")))
+    pre = html.escape(json.dumps(report_data, indent=2, ensure_ascii=False))
+    return (
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
+        f"<title>Haifa Agent Ladder Report {run_id}</title>"
+        "<style>body{font-family:system-ui,sans-serif;margin:2rem;}"
+        "pre{background:#f6f8fa;padding:1rem;border-radius:6px;overflow:auto;}"
+        "</style></head><body>"
+        f"<h1>Haifa Agent Ladder Report: {run_id}</h1>"
+        f"<p>Status: <strong>{status}</strong></p>"
+        f"<pre>{pre}</pre>"
+        "</body></html>\n"
+    )

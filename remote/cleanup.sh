@@ -32,9 +32,9 @@ done
 echo "[cleanup] Removing ephemeral secrets in /run/haifa-eval/$RUN_ID..."
 sudo rm -rf "/run/haifa-eval/$RUN_ID"
 
-echo "[cleanup] Removing worktrees and plans in /var/lib/haifa-eval/ for $RUN_ID..."
+echo "[cleanup] Removing worktrees and agent distributions in /var/lib/haifa-eval/ for $RUN_ID..."
 sudo rm -rf "/var/lib/haifa-eval/worktrees/$RUN_ID"
-sudo rm -rf "/var/lib/haifa-eval/plans/$RUN_ID"
+sudo rm -rf "/var/lib/haifa-eval/agent-dist/$RUN_ID"
 sudo rm -rf "/var/lib/haifa-eval/runs/$RUN_ID"
 
 if [[ "$INCLUDE_EVIDENCE" == "--include-evidence" ]]; then

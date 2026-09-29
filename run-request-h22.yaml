@@ -1,5 +1,5 @@
 schemaVersion: 2
-runId: fresh-host-probe-001
+runId: ad-h22-probe-001
 
 target:
   # address and user are omitted here and will be loaded from .env (TARGET_HOST_IP and TARGET_HOST_USER)
@@ -9,21 +9,17 @@ target:
 
 source:
   githubPrivateKeyFileEnv: HAIFA_EVAL_GITHUB_SSH_KEY_FILE
-  # Only the product repository is frozen; the ladder runner fetches its own
-  # case assets from the locked asset repository at run time.
   product:
     url: git@github.com:haifa-agent/haifa-agent.git
     branch: dev
-    # commit: 0123456789abcdef0123456789abcdef01234567 # 若指定 commit 则使用指定 commit，否则自动解析该分支最新 commit
 
 evaluation:
   kind: haifa-ladder
   providerId: zhipu
   modelId: glm-5.3-flash
-  caseSet: ladder-v1
-  # cases: "L1-*,L2-*"          # 可选：在题集内筛选 case（逗号分隔）
-  # repeat: 1                   # 可选：未指定时 ladder-v1 默认 1，hard-v1 默认 3
-  # timeoutScale: 1.0           # 可选：整体超时倍率
+  caseSet: hard-v1
+  cases: "H22-01"
+  repeat: 2
   approval: auto
   allowRealProvider: true
   requiredSecretEnvironmentNames:

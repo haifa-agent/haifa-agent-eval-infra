@@ -1,4 +1,4 @@
-"""Pydantic schema definitions for Run Request V1."""
+"""Pydantic schema definitions for Run Request V2 (autonomous-delivery ladder runner)."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ RUN_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def _default_user() -> str:
-    u = os.getenv("TARGET_HOST_USER", os.getenv("HAIFA_EVAL_TARGET_USER", "ecs-user")).strip()
-    return "ecs-user" if u in ("ecs-users", "ecs-user") else (u or "ecs-user")
+    u = os.getenv("TARGET_HOST_USER", os.getenv("HAIFA_EVAL_TARGET_USER", "root")).strip()
+    return u or "root"
 
 
 class TargetConfig(BaseModel):
@@ -50,12 +50,8 @@ class TargetConfig(BaseModel):
     def validate_user(cls, value: str) -> str:
         val = value.strip() if value else ""
         if not val:
-            val = os.getenv(
-                "TARGET_HOST_USER", os.getenv("HAIFA_EVAL_TARGET_USER", "ecs-user")
-            ).strip()
-        if val in ("ecs-users", "ecs-user"):
-            return "ecs-user"
-        return val or "ecs-user"
+            val = os.getenv("TARGET_HOST_USER", os.getenv("HAIFA_EVAL_TARGET_USER", "root")).strip()
+        return val or "root"
 
     @field_validator("port")
     @classmethod
@@ -101,41 +97,59 @@ class RepoSpec(BaseModel):
         return self.commit if self.commit else self.branch
 
 
-class RepositoriesConfig(BaseModel):
-    product: RepoSpec
-    docs: RepoSpec
-    testConfig: RepoSpec
-
-
 class SourceConfig(BaseModel):
+    """Only the product repository is frozen; the runner fetches case assets itself."""
+
     githubPrivateKeyFileEnv: str
-    repositories: RepositoriesConfig
-
-
-class SuiteRunSpec(BaseModel):
-    id: str
-    suite: str
-    platform: str
-    approveBudget: str
-    reportRole: Literal["admission", "formal"] = "formal"
-
-
-class SidecarConfig(BaseModel):
-    name: str
-    port: int
-    healthPath: str = "/actuator/health"
-    serviceName: str | None = None
-    required: bool = True
+    product: RepoSpec
 
 
 class EvaluationConfig(BaseModel):
-    kind: Literal["haifa-harness", "haifa-evals-harbor"] = "haifa-harness"
+    """Autonomous-delivery capability ladder evaluation configuration."""
+
+    kind: Literal["haifa-ladder"] = "haifa-ladder"
     providerId: str
     modelId: str
-    agentProfileRef: str
+    caseSet: str = "ladder-v1"
+    cases: str = ""
+    repeat: int | None = None
+    timeoutScale: float = 1.0
+    approval: Literal["auto", "deny"] = "auto"
+    allowRealProvider: bool = False
+    rehearse: bool = False
+    agentDistributionDir: str = "/var/lib/haifa-eval/agent-dist"
+    assetsCacheDir: str = "/var/lib/haifa-eval/cache/autonomous-delivery-assets"
     requiredSecretEnvironmentNames: list[str] = Field(default_factory=list)
-    sidecars: list[SidecarConfig] = Field(default_factory=list)
-    runs: list[SuiteRunSpec] = Field(default_factory=list)
+
+    @field_validator("caseSet")
+    @classmethod
+    def validate_case_set(cls, value: str) -> str:
+        val = value.strip() if value else ""
+        if not val:
+            raise RequestValidationError("evaluation.caseSet must not be empty")
+        return val
+
+    @field_validator("repeat")
+    @classmethod
+    def validate_repeat(cls, value: int | None) -> int | None:
+        if value is not None and value < 1:
+            raise RequestValidationError("evaluation.repeat must be >= 1 when specified")
+        return value
+
+    @field_validator("timeoutScale")
+    @classmethod
+    def validate_timeout_scale(cls, value: float) -> float:
+        if value <= 0:
+            raise RequestValidationError("evaluation.timeoutScale must be > 0")
+        return value
+
+    @field_validator("agentDistributionDir", "assetsCacheDir")
+    @classmethod
+    def validate_absolute_path(cls, value: str) -> str:
+        val = (value or "").strip()
+        if not val.startswith("/"):
+            raise RequestValidationError(f"Evaluation path must be absolute on the remote host: {val}")
+        return val.rstrip("/") or "/"
 
 
 class OutputConfig(BaseModel):
@@ -145,12 +159,22 @@ class OutputConfig(BaseModel):
 
 
 class RunRequest(BaseModel):
-    schemaVersion: int = 1
+    schemaVersion: int = 2
     runId: str
     target: TargetConfig
     source: SourceConfig
     evaluation: EvaluationConfig
     output: OutputConfig
+
+    @field_validator("schemaVersion")
+    @classmethod
+    def validate_schema_version(cls, value: int) -> int:
+        if value != 2:
+            raise RequestValidationError(
+                f"Unsupported schemaVersion {value}; this control plane only supports version 2 "
+                "(autonomous-delivery ladder runner)"
+            )
+        return value
 
     @field_validator("runId")
     @classmethod
@@ -166,10 +190,4 @@ class RunRequest(BaseModel):
             raise RequestValidationError(
                 "Host SSH key env and GitHub deploy key env must be distinct environment variables"
             )
-
-        # Rule: Run entries must have unique IDs
-        run_entry_ids = [run.id for run in self.evaluation.runs]
-        if len(run_entry_ids) != len(set(run_entry_ids)):
-            raise RequestValidationError(f"Duplicate run IDs in evaluation.runs: {run_entry_ids}")
-
         return self

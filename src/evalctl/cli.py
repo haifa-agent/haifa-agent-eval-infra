@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -13,10 +14,8 @@ from evalctl.core.cleanup import perform_run_cleanup
 from evalctl.core.errors import EvalctlError
 from evalctl.core.lifecycle import LifecycleManager, LifecycleStage
 from evalctl.evidence.puller import pull_and_verify_evidence
-from evalctl.harness.approval import verify_and_record_approval
-from evalctl.harness.plan import generate_plan_set
 from evalctl.harness.secret import EphemeralSecretManager
-from evalctl.harness.supervisor import execute_suite_run
+from evalctl.harness.supervisor import execute_ladder_run
 from evalctl.host.bootstrap import run_host_bootstrap
 from evalctl.host.doctor import run_host_doctor
 from evalctl.host.trust import verify_host_key
@@ -42,6 +41,29 @@ def get_transport(request, local_run_dir: Path) -> SSHTransport:
         port=request.target.port,
         known_hosts_path=known_hosts if known_hosts.exists() else None,
     )
+
+
+def _print_progress(event: dict) -> None:
+    kind = event.get("kind")
+    if kind == "run":
+        print(
+            f"  [ladder] cases={event['cases']} repeat={event['repeat']} total={event['total']}"
+        )
+    elif kind == "progress":
+        print(
+            f"  [progress] {event['evaluated']}/{event['total']} passed={event['passed']} "
+            f"failed={event['failed']} incomplete={event['incompleteBudget']}"
+        )
+    elif kind == "case":
+        print(
+            f"  [case {event['evaluated']}/{event['total']}] {event['caseId']} "
+            f"attempt={event['attempt']} -> {event['status']}"
+        )
+    elif kind == "summary":
+        print(
+            f"  [summary] runs={event['runs']} passed={event['passed']} "
+            f"failed={event['failed']} incomplete={event['incompleteBudget']}"
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,31 +119,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_src = subparsers.add_parser("source", help="Source management", parents=[common_parser])
     src_subs = p_src.add_subparsers(dest="subcommand", required=True)
     p_src_prep = src_subs.add_parser(
-        "prepare", help="Clone and pin exact commits on remote", parents=[common_parser]
+        "prepare", help="Clone and pin the product repository on remote", parents=[common_parser]
     )
     p_src_prep.add_argument("--file", required=True, help="Path to Run Request YAML")
 
-    # plan
-    p_plan = subparsers.add_parser(
-        "plan", help="Generate Harness execution plan and Plan Set", parents=[common_parser]
+    # check (preflight only)
+    p_check = subparsers.add_parser(
+        "check",
+        help="Run harness preflight without calling the provider",
+        parents=[common_parser],
     )
-    p_plan.add_argument("--file", required=True, help="Path to Run Request YAML")
+    p_check.add_argument("--file", required=True, help="Path to Run Request YAML")
 
     # run
     p_run = subparsers.add_parser(
-        "run", help="Execute approved evaluation run", parents=[common_parser]
+        "run", help="Execute the autonomous-delivery ladder evaluation", parents=[common_parser]
     )
     p_run.add_argument("--file", required=True, help="Path to Run Request YAML")
-    p_run.add_argument(
-        "--approved-plan-set", required=True, help="SHA-256 digest of approved plan-set.json"
-    )
 
     # status
     p_stat = subparsers.add_parser("status", help="Check run status", parents=[common_parser])
     p_stat.add_argument("--file", required=True, help="Path to Run Request YAML")
 
     # logs
-    p_logs = subparsers.add_parser("logs", help="View journal logs", parents=[common_parser])
+    p_logs = subparsers.add_parser("logs", help="View run logs", parents=[common_parser])
     p_logs.add_argument("--file", required=True, help="Path to Run Request YAML")
     p_logs.add_argument("--follow", action="store_true", help="Follow live output")
 
@@ -155,21 +176,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(args: list[str] | None = None) -> int:
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-        try:
+        with contextlib.suppress(Exception):
             sys.stdout.reconfigure(errors="replace")
-        except Exception:
-            pass
     if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-        try:
+        with contextlib.suppress(Exception):
             sys.stderr.reconfigure(errors="replace")
-        except Exception:
-            pass
 
     parser = build_parser()
     parsed = parser.parse_args(args)
 
     try:
-        # Automatically load .env (defaults to ./.env if present, or specified --env-file)
         loaded_env_path = load_env_file(getattr(parsed, "env_file", None))
         if loaded_env_path and getattr(parsed, "env_file", None):
             print(f"[evalctl] Loaded environment from: {loaded_env_path}")
@@ -178,8 +194,7 @@ def main(args: list[str] | None = None) -> int:
             print(f"[evalctl] Run Request valid: runId='{request.runId}', canonicalSha256='{sha}'")
             return 0
 
-        # Commands that load full request
-        request, _, request_sha = load_run_request(parsed.file, validate_local_keys=False)
+        request, _, _ = load_run_request(parsed.file, validate_local_keys=False)
         local_run_dir = Path(request.output.localResultRoot) / request.runId
         control_dir = local_run_dir / "control"
         lifecycle = LifecycleManager(request.runId, control_dir)
@@ -217,57 +232,58 @@ def main(args: list[str] | None = None) -> int:
             src_script = REPO_ROOT / "remote" / "source-prepare.sh"
             manifest = prepare_sources(transport, request, src_script, control_dir, verbose=verbose)
             lifecycle.record(LifecycleStage.SOURCE_PINNED, artifacts=manifest)
-            print(f"[evalctl] Sources prepared and pinned for run {request.runId}")
+            print(f"[evalctl] Product source prepared and pinned for run {request.runId}")
             return 0
 
-        if parsed.command == "plan":
-            plans_dir = local_run_dir / "plans"
-            plan_set = generate_plan_set(transport, request, request_sha, plans_dir, verbose=verbose)
-            lifecycle.record(
-                LifecycleStage.PLAN_CREATED,
-                artifacts={"planSetSha256": plan_set["planSetSha256"]},
-            )
-            lifecycle.record(LifecycleStage.WAITING_APPROVAL)
-            print("[evalctl] Plan Set generated successfully.")
-            print(f"  Plan Set Digest: {plan_set['planSetSha256']}")
-            print("  Status: WAITING_APPROVAL. To execute, run:")
-            print(
-                f"    evalctl run --file {parsed.file} --approved-plan-set {plan_set['planSetSha256']}"
-            )
+        if parsed.command == "check":
+            secret_mgr = EphemeralSecretManager(transport, request)
+            secrets_path = secret_mgr.inject_secrets()
+            try:
+                sup_script = REPO_ROOT / "remote" / "supervisor.sh"
+                journal_file = control_dir / "check.journal"
+                print(f"[evalctl] Running harness preflight for run {request.runId} (no provider call)...")
+                execute_ladder_run(
+                    transport,
+                    request,
+                    secrets_path,
+                    journal_file,
+                    sup_script,
+                    on_progress=_print_progress,
+                    verbose=verbose,
+                    action="check",
+                )
+                lifecycle.record(LifecycleStage.CHECK_PASSED)
+                print("[evalctl] Harness preflight PASSED.")
+            finally:
+                secret_mgr.destroy_secrets()
             return 0
 
         if parsed.command == "run":
-            plans_dir = local_run_dir / "plans"
-            verify_and_record_approval(
-                parsed.approved_plan_set, plans_dir, operator_id=os.getlogin()
-            )
-            lifecycle.record(
-                LifecycleStage.RUNNING,
-                extra={"approvedPlanSet": parsed.approved_plan_set},
-            )
+            if not request.evaluation.allowRealProvider:
+                raise EvalctlError(
+                    "Refusing to run: evaluation.allowRealProvider must be true to call a real "
+                    "provider (this incurs cost). Set it explicitly in the Run Request."
+                )
+            lifecycle.record(LifecycleStage.RUNNING)
 
             secret_mgr = EphemeralSecretManager(transport, request)
             secrets_path = secret_mgr.inject_secrets()
             try:
                 sup_script = REPO_ROOT / "remote" / "supervisor.sh"
-                for s_spec in request.evaluation.runs:
-                    print(f"[evalctl] Starting suite: {s_spec.id} ({s_spec.suite})...")
-                    jfile = control_dir / f"{s_spec.id}.journal"
-                    execute_suite_run(
-                        transport,
-                        request,
-                        s_spec,
-                        secrets_path,
-                        jfile,
-                        sup_script,
-                        on_progress=lambda p: print(
-                            f"  [progress] phase={p['phase']} evaluated={p['evaluated']} passed={p['passed']} current={p['currentCase']}"
-                        ),
-                        verbose=verbose,
-                    )
+                journal_file = control_dir / "ladder.journal"
+                print(f"[evalctl] Starting autonomous-delivery ladder for run {request.runId}...")
+                execute_ladder_run(
+                    transport,
+                    request,
+                    secrets_path,
+                    journal_file,
+                    sup_script,
+                    on_progress=_print_progress,
+                    verbose=verbose,
+                )
                 lifecycle.record(LifecycleStage.EVIDENCE_READY)
                 print(
-                    "[evalctl] Evaluation run completed successfully. Evidence is ready for collection."
+                    "[evalctl] Ladder run completed. Evidence is ready for collection."
                 )
             finally:
                 secret_mgr.destroy_secrets()
@@ -279,16 +295,18 @@ def main(args: list[str] | None = None) -> int:
             return 0
 
         if parsed.command == "logs":
+            remote_control = f"/var/lib/haifa-eval/runs/{request.runId}/control"
             if getattr(parsed, "follow", False):
-                remote_journals = f"/var/lib/haifa-eval/runs/{request.runId}/journals"
                 cmd = [
                     "bash",
                     "-c",
-                    f"mkdir -p '{remote_journals}' && tail -n 50 -F '{remote_journals}'/*.journal 2>/dev/null",
+                    f"mkdir -p '{remote_control}' && tail -n 50 -F '{remote_control}'/*.journal 2>/dev/null",
                 ]
                 print(f"[evalctl] Streaming remote logs for run {request.runId} (Ctrl+C to stop)...")
                 try:
-                    transport.stream_command(cmd, on_line=lambda l: print(l, end="", flush=True))
+                    transport.stream_command(
+                        cmd, on_line=lambda line: print(line, end="", flush=True)
+                    )
                 except KeyboardInterrupt:
                     print("\n[evalctl] Stopped log following.")
                 return 0
@@ -299,7 +317,7 @@ def main(args: list[str] | None = None) -> int:
                     [
                         "bash",
                         "-c",
-                        f"cat /var/lib/haifa-eval/runs/{request.runId}/journals/*.journal 2>/dev/null || true",
+                        f"cat {remote_control}/*.journal 2>/dev/null || true",
                     ]
                 )
                 if res.stdout.strip():

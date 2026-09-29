@@ -1,4 +1,4 @@
-schemaVersion: 1
+schemaVersion: 2
 runId: zhipu-glm53-ubuntu-20260909-001
 
 target:
@@ -11,36 +11,21 @@ target:
 
 source:
   githubPrivateKeyFileEnv: HAIFA_EVAL_GITHUB_SSH_KEY_FILE
-  repositories:
-    product:
-      url: git@github.com:haifa-ai/haifa-agent.git
-      commit: 0123456789abcdef0123456789abcdef01234567
-    docs:
-      url: git@github.com:haifa-ai/haifa-agent-internal-docs.git
-      commit: 1123456789abcdef0123456789abcdef01234567
-    testConfig:
-      url: git@github.com:haifa-ai/haifa-agent-test-config.git
-      commit: 2123456789abcdef0123456789abcdef01234567
+  product:
+    url: git@github.com:haifa-ai/haifa-agent.git
+    commit: 0123456789abcdef0123456789abcdef01234567
 
 evaluation:
-  kind: haifa-harness
+  kind: haifa-ladder
   providerId: zhipu
   modelId: glm-5.3-flash
-  agentProfileRef: coding-zhipu-glm53-flash
+  caseSet: ladder-v1
+  approval: auto
+  allowRealProvider: true
   requiredSecretEnvironmentNames:
     - BIGMODEL_API_KEY
-    - ALIYUN_IQS_API_KEY
-  runs:
-    - id: cp-smoke
-      suite: critical-path-smoke-v1
-      platform: linux-primary
-      approveBudget: "5"
-      reportRole: admission
-    - id: cp-regression
-      suite: critical-path-regression-v1
-      platform: linux-primary
-      approveBudget: "20"
-      reportRole: formal
+  agentDistributionDir: /var/lib/haifa-eval/agent-dist
+  assetsCacheDir: /var/lib/haifa-eval/cache/autonomous-delivery-assets
 
 output:
   remoteEvidenceRoot: /var/lib/haifa-eval/evidence

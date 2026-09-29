@@ -1,4 +1,4 @@
-"""Deterministic evaluation report builder."""
+"""Deterministic evaluation report builder for the autonomous-delivery ladder."""
 
 from __future__ import annotations
 
@@ -9,105 +9,84 @@ from pathlib import Path
 from typing import Any
 
 from evalctl.config.schema import RunRequest
-from evalctl.report.autonomous_delivery import summarize_autonomous_delivery
-from evalctl.report.critical_path import summarize_critical_path
+from evalctl.report.ladder import summarize_ladder
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    with contextlib.suppress(Exception):
+        return json.loads(path.read_text(encoding="utf-8"))
+    return None
+
+
+def _read_run_records(path: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    if not path.is_file():
+        return records
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        with contextlib.suppress(Exception):
+            records.append(json.loads(line))
+    return records
 
 
 def build_evaluation_report(
     request: RunRequest,
     local_run_dir: Path,
 ) -> dict[str, Any]:
-    """Generates a complete, deterministic report from authoritative evidence JSONs."""
+    """Generates a deterministic report from the ladder evidence artifacts."""
     evidence_dir = local_run_dir / "evidence"
     control_dir = local_run_dir / "control"
 
-    # Check secret scan
-    secret_scan_file = evidence_dir / "secret-scan.json"
-    is_valid_evidence = True
-    if secret_scan_file.is_file():
-        try:
-            scan_data = json.loads(secret_scan_file.read_text(encoding="utf-8"))
-            if scan_data.get("status", "").upper() != "CLEAN" and scan_data.get("violations"):
-                is_valid_evidence = False
-        except Exception:
-            is_valid_evidence = False
-    else:
-        is_valid_evidence = False
+    # Credential leak scan gate
+    scan_data = _read_json(evidence_dir / "secret-scan.json")
+    scan_status = str(scan_data.get("status", "")).upper() if scan_data else ""
+    is_valid_evidence = bool(scan_data) and not (
+        scan_status != "CLEAN" and scan_data.get("violations")
+    )
 
-    # Read source manifest
-    source_manifest_file = control_dir / "source-manifest.json"
-    repositories = {}
-    if source_manifest_file.is_file():
-        with contextlib.suppress(Exception):
-            manifest = json.loads(source_manifest_file.read_text(encoding="utf-8"))
-            repositories = manifest.get("repositories", {})
+    # Source provenance
+    repositories: dict[str, Any] = {}
+    source_manifest = _read_json(control_dir / "source-manifest.json")
+    if source_manifest:
+        repositories = source_manifest.get("repositories", {})
 
-    # Read run results
-    run_result_file = evidence_dir / "run-result.json"
-    run_result_data: dict[str, Any] = {}
-    if run_result_file.is_file():
-        with contextlib.suppress(Exception):
-            run_result_data = json.loads(run_result_file.read_text(encoding="utf-8"))
+    ladder_report = _read_json(evidence_dir / "ladder-report.json")
+    records = _read_run_records(evidence_dir / "run-records.jsonl")
+    usage_report = _read_json(evidence_dir / "usage-report.json")
 
-    # Build sub-reports
-    cp_summary = None
-    ad_summary = None
+    ladder_summary = None
+    if ladder_report is not None or records:
+        ladder_summary = summarize_ladder(ladder_report, records, usage_report)
 
-    if (
-        "cases" in run_result_data
-        or "nativeResult" in run_result_data
-        or run_result_data.get("suiteType") == "critical-path"
-    ):
-        suite_id = (
-            run_result_data.get("suiteId")
-            or run_result_data.get("nativeResult", {}).get("suiteId")
-            or ""
-        )
-        if "autonomous" in suite_id.lower() or "ad-" in suite_id.lower():
-            ad_summary = summarize_autonomous_delivery([run_result_data])
-        else:
-            cp_summary = summarize_critical_path(run_result_data)
-
-    # Check multi-phase AD files in evidence
-    ad_phase_files = list(evidence_dir.glob("ad-phase-*.json"))
-    if ad_phase_files:
-        phase_results = []
-        for pf in sorted(ad_phase_files):
-            with contextlib.suppress(Exception):
-                phase_results.append(json.loads(pf.read_text(encoding="utf-8")))
-        if phase_results:
-            ad_summary = summarize_autonomous_delivery(phase_results)
-
-    # Determine overall status
     if not is_valid_evidence:
         top_status = "INVALID_EVIDENCE"
-    elif not run_result_data:
+    elif ladder_report is None:
         top_status = "INCOMPLETE"
     else:
-        cp_pass = cp_summary.get("passed", True) if cp_summary else True
-        ad_pass = ad_summary.get("passed", True) if ad_summary else True
-        top_status = "COMPLETE_PASS" if cp_pass and ad_pass else "COMPLETE_WITH_FAILURES"
+        top_status = "COMPLETE_PASS" if ladder_summary and ladder_summary["passed"] else (
+            "COMPLETE_WITH_FAILURES"
+        )
 
     report = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "runId": request.runId,
         "status": top_status,
         "providerId": request.evaluation.providerId,
         "modelId": request.evaluation.modelId,
-        "agentProfileRef": request.evaluation.agentProfileRef,
+        "caseSet": request.evaluation.caseSet,
         "evaluatedAt": datetime.now(UTC).isoformat(),
         "repositories": repositories,
-        "criticalPath": cp_summary,
-        "autonomousDelivery": ad_summary,
+        "ladder": ladder_summary,
     }
 
-    # Persist report.json, report.md, and interactive report.html
     (local_run_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     from evalctl.report.renderers import render_html, render_markdown
 
     (local_run_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
-    (local_run_dir / "report.html").write_text(
-        render_html(report, local_run_dir), encoding="utf-8"
-    )
+    (local_run_dir / "report.html").write_text(render_html(report), encoding="utf-8")
 
     return report

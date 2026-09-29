@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -256,7 +256,7 @@ class ROSManager:
         self._run_aliyun(args)
 
         if wait:
-            print(f"[ROSManager] Waiting for stack deletion to complete...")
+            print("[ROSManager] Waiting for stack deletion to complete...")
             start_time = time.time()
             while time.time() - start_time < timeout:
                 try:
@@ -314,10 +314,8 @@ class ROSManager:
 
     def _clear_state(self) -> None:
         if self.state_file.exists():
-            try:
+            with contextlib.suppress(OSError):
                 self.state_file.unlink()
-            except OSError:
-                pass
 
 
 def main() -> None:

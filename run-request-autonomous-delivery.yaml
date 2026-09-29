@@ -1,54 +1,30 @@
-schemaVersion: 1
-runId: ad-fresh-probe-001
+schemaVersion: 2
+runId: ad-hard-probe-001
 
 target:
   # address and user are omitted here and will be loaded from .env (TARGET_HOST_IP and TARGET_HOST_USER)
-  hostKeySha256: "SHA256:POH1qMxApMN3J+pDrF4eUFp2kprDWPBEyCQWgrmmqJc"
+  hostKeySha256: "SHA256:ylPTQ/4Q6t28Vhzb862IEnPCyrsdJb88R87xYqYBAgw"
   sshPrivateKeyFileEnv: HAIFA_EVAL_HOST_SSH_KEY_FILE
   requirePasswordlessSudo: true
 
 source:
   githubPrivateKeyFileEnv: HAIFA_EVAL_GITHUB_SSH_KEY_FILE
-  repositories:
-    product:
-      url: git@github.com:haifa-agent/haifa-agent.git
-      branch: dev
-    docs:
-      url: git@github.com:haifa-agent/haifa-agent-internal-docs.git
-      branch: main
-    testConfig:
-      url: git@github.com:haifa-agent/haifa-agent-test-config.git
-      branch: main
+  product:
+    url: git@github.com:haifa-agent/haifa-agent.git
+    branch: dev
 
 evaluation:
-  kind: haifa-harness
+  kind: haifa-ladder
   providerId: zhipu
   modelId: glm-5.3-flash
-  agentProfileRef: coding-zhipu-glm53-flash
+  caseSet: hard-v1
+  repeat: 1
+  approval: auto
+  allowRealProvider: true
   requiredSecretEnvironmentNames:
     - BIGMODEL_API_KEY
-    - ALIYUN_IQS_API_KEY
-  sidecars:
-    - name: utility-mcp
-      port: 20002
-      healthPath: /actuator/health
-      serviceName: haifa-utility-mcp
-  runs:
-    - id: ad-phase-1
-      suite: autonomous-delivery-phase-1-v1
-      platform: linux-host-default
-      approveBudget: "900"
-      reportRole: formal
-    - id: ad-phase-2
-      suite: autonomous-delivery-phase-2-v1
-      platform: linux-host-default
-      approveBudget: "450"
-      reportRole: formal
-    - id: ad-phase-3
-      suite: autonomous-delivery-phase-3-v1
-      platform: linux-host-default
-      approveBudget: "2550"
-      reportRole: formal
+  agentDistributionDir: /var/lib/haifa-eval/agent-dist
+  assetsCacheDir: /var/lib/haifa-eval/cache/autonomous-delivery-assets
 
 output:
   remoteEvidenceRoot: /var/lib/haifa-eval/evidence

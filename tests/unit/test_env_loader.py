@@ -74,21 +74,17 @@ def test_target_ip_and_user_from_env(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("TARGET_HOST_USER", raising=False)
 
     yaml_content = """
-schemaVersion: 1
+schemaVersion: 2
 runId: test-run-ip-user
 target:
   sshPrivateKeyFileEnv: DUMMY_KEY_ENV
 source:
   githubPrivateKeyFileEnv: DUMMY_GH_ENV
-  repositories:
-    product: { url: "a", commit: "0123456789abcdef0123456789abcdef01234567" }
-    docs: { url: "b", commit: "1123456789abcdef0123456789abcdef01234567" }
-    testConfig: { url: "c", commit: "2123456789abcdef0123456789abcdef01234567" }
+  product: { url: "a", commit: "0123456789abcdef0123456789abcdef01234567" }
 evaluation:
-  kind: haifa-harness
+  kind: haifa-ladder
   providerId: zhipu
   modelId: glm-5.3-flash
-  agentProfileRef: test-prof
 output:
   localResultRoot: D:/test-results
 """
@@ -99,7 +95,7 @@ output:
         req_file, validate_local_keys=False, validate_local_result_root=False
     )
     assert req.target.address == "10.0.0.99"
-    assert req.target.user == "ecs-user"  # Default user
+    assert req.target.user == "root"  # Default user
 
 
 def test_target_yaml_env_placeholder_expansion(tmp_path: Path, monkeypatch):
@@ -109,7 +105,7 @@ def test_target_yaml_env_placeholder_expansion(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("MY_USER", "custom-admin")
 
     yaml_content = """
-schemaVersion: 1
+schemaVersion: 2
 runId: test-run-expansion
 target:
   address: "${MY_IP}"
@@ -117,15 +113,11 @@ target:
   sshPrivateKeyFileEnv: DUMMY_KEY_ENV
 source:
   githubPrivateKeyFileEnv: DUMMY_GH_ENV
-  repositories:
-    product: { url: "a", commit: "0123456789abcdef0123456789abcdef01234567" }
-    docs: { url: "b", commit: "1123456789abcdef0123456789abcdef01234567" }
-    testConfig: { url: "c", commit: "2123456789abcdef0123456789abcdef01234567" }
+  product: { url: "a", commit: "0123456789abcdef0123456789abcdef01234567" }
 evaluation:
-  kind: haifa-harness
+  kind: haifa-ladder
   providerId: zhipu
   modelId: glm-5.3-flash
-  agentProfileRef: test-prof
 output:
   localResultRoot: D:/test-results
 """

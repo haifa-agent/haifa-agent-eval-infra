@@ -28,11 +28,7 @@ class SourcePrepareError(EvalctlError):
 
 
 class AdmissionError(EvalctlError):
-    """Raised when agent profile, provider, model, or secret check fails."""
-
-
-class PlanApprovalError(EvalctlError):
-    """Raised when plan generation or budget approval check fails."""
+    """Raised when provider, model, or secret check fails."""
 
 
 class ExecutionError(EvalctlError):

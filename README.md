@@ -4,17 +4,29 @@
 
 ## 概述
 
-本项目用于通过本地控制端接管全新的 Ubuntu 评测主机，并在严格的信任边界与物理安全约束下完成：
+本项目用于通过本地控制端接管全新的 Ubuntu 评测主机，并在严格的信任边界与物理安全约束下完成一次
+**自主交付能力阶梯（Autonomous Delivery Ladder）**评测：
+
 1. **主机预检与引导**：只读检查环境、幂等 APT 最小软件包安装、无架构假设的 JDK 21 物理路径校验；
-2. **源码冻结**：只读凭据临时注入远端，完成主仓、`docs` 仓、`test-config` 仓精确 40 位 commit 独立检出后立即销毁凭据；
-3. **两阶段评测门禁**：执行 `plan` 并生成标准 `plan-set.json`，经由人工审阅预算与 Runner 签名确认后方可调用 `run`；
-4. **安全凭据注入**：Provider API Key 仅经 SSH stdin 进入远端 tmpfs `/run/haifa-eval/<runId>/secrets.env` (0600)，绝不落地长期介质；
-5. **实时安全进度转发**：脱敏转发 `[delivery-progress]` 安全心跳行，断线后任务继续在远端 systemd supervisor 执行；
-6. **双端证据校验与确定性报告**：基于清单与 Secret Scan 严格校验拉取的 Evidence Root，由确定性程序生成终端 ANSI、JSON 和 Markdown 报告。
+2. **源码冻结**：只读凭据临时注入远端，精确 40 位 commit 独立检出 **product 单仓**后立即销毁凭据；
+3. **Agent 发行包构建**：从冻结的 product 源码在主机上构建被评测的 Coding Agent 发行包
+   (`haifa-agent.jar` + `haifa-coding.yaml`)，作为评测对象；
+4. **安全凭据注入**：Provider API Key 与 GitHub 部署钥仅经 SSH stdin 进入远端 tmpfs
+   `/run/haifa-eval/<runId>/` (0600)，退出即销毁；
+5. **受控执行与实时安全进度**：通过 systemd 瞬态单元拉起 `run-ladder`，断线后继续执行；仅转发结构化
+   安全进度（`LADDER_*` / `progress` 行），不回显题面与模型原始输出；
+6. **双端证据校验与确定性报告**：基于清单与本地凭据泄漏扫描严格校验拉取的 Evidence Root，由确定性
+   程序生成终端 ANSI、JSON、Markdown 与 HTML 报告。
+
+> 说明：上游 `haifa-agent` 已废除旧的 `run-suite.sh plan/run`、Plan Set 与预算批准契约。自本版本起，
+> 控制面直接对接产品仓内的 `haifa-agent-autonomous-delivery/tools/run-ladder.sh`，**不再有 plan 阶段与
+> 预算门禁**；费用确认由 Run Request 的 `evaluation.allowRealProvider: true` 显式承担。
 
 ## 架构参考
-- 架构设计方案：[`docs/01-ssh-fresh-machine-evaluation-control-plane.md`](docs/01-ssh-fresh-machine-evaluation-control-plane.md)
+- 控制面架构设计方案：[`docs/01-ssh-fresh-machine-evaluation-control-plane.md`](docs/01-ssh-fresh-machine-evaluation-control-plane.md)
 - 详细任务分解：[`docs/02-executable-development-tasks.md`](docs/02-executable-development-tasks.md)
+
+> 上述设计文档记录的是旧的两阶段 harness 契约，当前实现已对齐新的 ladder runner，文档待同步。
 
 ## CLI 子命令体系
 
@@ -31,29 +43,65 @@ evalctl host doctor --file <request>
 # 4. 主机环境引导：幂等安装最小 APT 依赖包与物理路径 JDK 21，生成主机环境快照 (host_facts)
 evalctl host bootstrap --file <request> [-v/--verbose]
 
-# 5. 源码克隆与版本冻结：临时注入只读凭据，独立检出主仓/文档仓/配置仓精确 40 位 commit 后立即销毁凭据
+# 5. 源码冻结：临时注入只读凭据，独立检出 product 仓精确 40 位 commit 后立即销毁凭据
 evalctl source prepare --file <request> [-v/--verbose]
 
-# 6. 两阶段门禁（第一阶段）：远端构建 runner 并生成执行计划与费用预算，产出 Plan Set Digest
-evalctl plan --file <request>
+# 6. 评测执行：从冻结源码构建 Agent 发行包，注入内存级凭据并拉起 ladder 评测
+#    （需 request 中 allowRealProvider: true；rehearse: true 时使用参考解、不调用模型）
+evalctl run --file <request> [-v/--verbose]
 
-# 7. 两阶段门禁（第二阶段）：携带人工核准的 Plan Set Digest 启动评测，注入内存级 API Key 并拉起 systemd 隔离单元
-evalctl run --file <request> --approved-plan-set <digest> [-v/--verbose]
-
-# 8. 任务状态查询：查看当前评测生命周期阶段（如 WAITING_APPROVAL、RUNNING、EVIDENCE_READY 等）
+# 7. 任务状态查询：查看当前评测生命周期阶段（如 RUNNING、EVIDENCE_READY 等）
 evalctl status --file <request>
 
-# 9. 执行日志查看：读取评测各套件的远端 systemd journal 日志（支持 --follow 实时日志跟随）
+# 8. 执行日志查看：读取评测的远端 journal 日志（支持 --follow 实时日志跟随）
 evalctl logs --file <request> [--follow]
 
-# 10. 证据产物收集：从远端拉取 Evidence Root 至本地，执行哈希清单比对与凭据防泄漏扫描
+# 9. 证据产物收集：从远端拉取 Evidence Root 至本地，执行哈希清单比对与凭据防泄漏扫描
 evalctl collect --file <request>
 
-# 11. 评测报告生成：解析本地证据并生成标准化评测报告（支持 terminal 终端高亮、json、markdown 格式）
-evalctl report --file <request> [--format terminal|json|markdown]
+# 10. 评测报告生成：解析本地证据并生成标准化评测报告（terminal|json|markdown|html）
+evalctl report --file <request> [--format terminal|json|markdown|html]
 
-# 12. 远端环境清理：安全停止并清理远端瞬态单元与代码树（默认严格校验本地证据完整收据）
+# 11. 远端环境清理：安全停止并清理远端瞬态单元与代码树（默认严格校验本地证据完整收据）
 evalctl cleanup --file <request> [--include-evidence] [--force]
+```
+
+## Run Request V2 摘要
+
+```yaml
+schemaVersion: 2
+runId: my-run-001
+
+target:
+  hostKeySha256: "SHA256:..."          # 首次可用 evalctl host trust 发现后回填
+  sshPrivateKeyFileEnv: HAIFA_EVAL_HOST_SSH_KEY_FILE
+  requirePasswordlessSudo: true
+
+source:
+  githubPrivateKeyFileEnv: HAIFA_EVAL_GITHUB_SSH_KEY_FILE
+  product:                              # 仅冻结 product 仓
+    url: git@github.com:haifa-agent/haifa-agent.git
+    branch: dev                          # 或精确 40 位 commit
+
+evaluation:
+  kind: haifa-ladder
+  providerId: zhipu
+  modelId: glm-5.3-flash
+  caseSet: ladder-v1                    # 或 hard-v1
+  # cases: "L1-*"                        # 可选：题集内筛选
+  # repeat: 1                            # 可选：ladder-v1 默认 1，hard-v1 默认 3
+  approval: auto
+  allowRealProvider: true                # 显式费用确认；否则 run 拒绝执行
+  # rehearse: true                       # 参考解彩排，不调用模型
+  requiredSecretEnvironmentNames:
+    - BIGMODEL_API_KEY
+  agentDistributionDir: /var/lib/haifa-eval/agent-dist
+  assetsCacheDir: /var/lib/haifa-eval/cache/autonomous-delivery-assets
+
+output:
+  remoteEvidenceRoot: /var/lib/haifa-eval/evidence
+  localResultRoot: D:/haifa-agent-eval-results
+  retainRemoteEvidenceAfterPull: true
 ```
 
 ## 评测主机生命周期管理（阿里云 ROS 抢占式实例）

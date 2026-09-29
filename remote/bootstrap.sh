@@ -49,7 +49,7 @@ sudo usermod -a -G "$EVAL_USER" haifa-eval || true
 
 echo "[bootstrap] Configuring standard directory hierarchy for haifa-eval and user $EVAL_USER..."
 sudo mkdir -p /opt/haifa-eval
-sudo mkdir -p /var/lib/haifa-eval/{runs,worktrees,plans,evidence,facts}
+sudo mkdir -p /var/lib/haifa-eval/{runs,worktrees,evidence,facts,cache,agent-dist}
 sudo chown -R haifa-eval:haifa-eval /var/lib/haifa-eval
 sudo chmod -R 775 /var/lib/haifa-eval
 sudo chmod g+s /var/lib/haifa-eval
