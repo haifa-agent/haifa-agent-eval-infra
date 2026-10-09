@@ -15,6 +15,7 @@ from evalctl.core.errors import EvidenceError
 from evalctl.evidence.verifier import (
     collect_secret_values,
     scan_for_secrets,
+    verify_evals_summary,
     verify_evidence_manifest,
     verify_ladder_report,
     verify_run_records,
@@ -112,20 +113,32 @@ def pull_and_verify_evidence(
     secret_scan = scan_for_secrets(local_evidence_dir, secret_values)
     verify_secret_scan(local_evidence_dir)
 
-    ladder_report = verify_ladder_report(local_evidence_dir)
-    records = verify_run_records(local_evidence_dir)
-
-    evaluation = ladder_report.get("evaluation", {}) if isinstance(ladder_report, dict) else {}
-    receipt = {
-        "runId": request.runId,
-        "pulledAt": datetime.now(UTC).isoformat(),
-        "verifiedFileCount": len(verified_files),
-        "secretScanStatus": secret_scan.get("status"),
-        "ladderStatus": ladder_report.get("mode") if isinstance(ladder_report, dict) else None,
-        "evaluatedRuns": len(records),
-        "files": verified_files,
-        "evaluation": evaluation,
-    }
+    if request.evaluation.kind == "haifa-evals-harbor":
+        summary = verify_evals_summary(local_evidence_dir)
+        receipt = {
+            "runId": request.runId,
+            "pulledAt": datetime.now(UTC).isoformat(),
+            "verifiedFileCount": len(verified_files),
+            "secretScanStatus": secret_scan.get("status"),
+            "harborStatus": summary.get("status") if "status" in summary else "SUMMARY_ONLY",
+            "evaluatedRuns": summary.get("attemptCount", 0),
+            "files": verified_files,
+            "evalsSummary": summary,
+        }
+    else:
+        ladder_report = verify_ladder_report(local_evidence_dir)
+        records = verify_run_records(local_evidence_dir)
+        evaluation = ladder_report.get("evaluation", {}) if isinstance(ladder_report, dict) else {}
+        receipt = {
+            "runId": request.runId,
+            "pulledAt": datetime.now(UTC).isoformat(),
+            "verifiedFileCount": len(verified_files),
+            "secretScanStatus": secret_scan.get("status"),
+            "ladderStatus": ladder_report.get("mode") if isinstance(ladder_report, dict) else None,
+            "evaluatedRuns": len(records),
+            "files": verified_files,
+            "evaluation": evaluation,
+        }
     (local_evidence_dir / "transfer-receipt.json").write_text(
         json.dumps(receipt, indent=2), encoding="utf-8"
     )

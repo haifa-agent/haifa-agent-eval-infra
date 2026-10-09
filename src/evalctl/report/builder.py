@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from evalctl.config.schema import RunRequest
+from evalctl.report.harbor import summarize_harbor
 from evalctl.report.ladder import summarize_ladder
 
 
@@ -33,11 +34,51 @@ def _read_run_records(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _build_harbor_report(
+    request: RunRequest,
+    local_run_dir: Path,
+    evidence_dir: Path,
+    repositories: dict[str, Any],
+    is_valid_evidence: bool,
+) -> dict[str, Any]:
+    evals_summary = _read_json(evidence_dir / "evals-summary.json")
+    harbor_summary = summarize_harbor(evals_summary, evidence_dir / "results.csv")
+    if not is_valid_evidence:
+        top_status = "INVALID_EVIDENCE"
+    elif evals_summary is None:
+        top_status = "INCOMPLETE"
+    else:
+        top_status = (
+            "COMPLETE_PASS" if harbor_summary.get("passed") else "COMPLETE_WITH_FAILURES"
+        )
+
+    report = {
+        "schemaVersion": 2,
+        "kind": "haifa-evals-harbor",
+        "runId": request.runId,
+        "status": top_status,
+        "providerId": request.evaluation.providerId,
+        "modelId": request.evaluation.modelId,
+        "evalId": request.evaluation.evalId,
+        "evaluatedAt": datetime.now(UTC).isoformat(),
+        "repositories": repositories,
+        "harbor": harbor_summary,
+    }
+
+    (local_run_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    from evalctl.report.renderers import render_html, render_markdown
+
+    (local_run_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
+    (local_run_dir / "report.html").write_text(render_html(report), encoding="utf-8")
+
+    return report
+
+
 def build_evaluation_report(
     request: RunRequest,
     local_run_dir: Path,
 ) -> dict[str, Any]:
-    """Generates a deterministic report from the ladder evidence artifacts."""
+    """Generates a deterministic report from the run evidence artifacts."""
     evidence_dir = local_run_dir / "evidence"
     control_dir = local_run_dir / "control"
 
@@ -53,6 +94,15 @@ def build_evaluation_report(
     source_manifest = _read_json(control_dir / "source-manifest.json")
     if source_manifest:
         repositories = source_manifest.get("repositories", {})
+
+    if request.evaluation.kind == "haifa-evals-harbor":
+        return _build_harbor_report(
+            request,
+            local_run_dir,
+            evidence_dir,
+            repositories,
+            is_valid_evidence,
+        )
 
     ladder_report = _read_json(evidence_dir / "ladder-report.json")
     records = _read_run_records(evidence_dir / "run-records.jsonl")

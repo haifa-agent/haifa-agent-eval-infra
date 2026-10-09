@@ -45,9 +45,20 @@ def render_terminal(report_data: dict[str, Any]) -> str:
             lines.append(
                 f"    {level_name}: passed {info.get('passedRuns')}/{info.get('runs')}"
             )
-        usage = ladder.get("usageTotals")
-        if usage:
-            lines.append(f"  Usage:    {json.dumps(usage, ensure_ascii=False)}")
+    usage = ladder.get("usageTotals")
+    if usage:
+        lines.append(f"  Usage:    {json.dumps(usage, ensure_ascii=False)}")
+
+    harbor = report_data.get("harbor")
+    if harbor:
+        lines.append(f"\n{bold}[Harbor Terminal-Bench Eval]{reset}")
+        lines.append(f"  Eval Id:  {harbor.get('evalId')}")
+        lines.append(f"  Score:    {harbor.get('score')} ({harbor.get('passRate')})")
+        lines.append(f"  Result:   {'PASS' if harbor.get('passed') else 'FAIL'}")
+        for candidate, info in sorted((harbor.get("perCandidate") or {}).items()):
+            lines.append(
+                f"    {candidate}: passed {info.get('passed')}/{info.get('attempts')}"
+            )
 
     lines.append(f"{bold}===================================================={reset}\n")
     return "\n".join(lines)
@@ -113,6 +124,35 @@ def render_markdown(report_data: dict[str, Any]) -> str:
             md.append("\n### Resource Usage")
             for key, value in sorted(usage.items()):
                 md.append(f"- **{key}**: {value}")
+
+    harbor = report_data.get("harbor")
+    if harbor:
+        md.append("\n## Harbor Terminal-Bench Eval")
+        md.append(f"- **Eval Id**: `{harbor.get('evalId')}`")
+        md.append(f"- **Score**: `{harbor.get('score')}`")
+        md.append(f"- **Pass Rate**: `{harbor.get('passRate')}`")
+        md.append(f"- **Status**: `{'PASS' if harbor.get('passed') else 'FAIL'}`\n")
+        per_candidate = harbor.get("perCandidate") or {}
+        if per_candidate:
+            md.append("### Per Candidate")
+            md.append("| Candidate | Passed | Attempts |")
+            md.append("| --- | --- | --- |")
+            for candidate, info in sorted(per_candidate.items()):
+                md.append(
+                    f"| `{candidate}` | {info.get('passed')} | {info.get('attempts')} |"
+                )
+            md.append("")
+        failures = harbor.get("failures") or []
+        if failures:
+            md.append("### Task Failures")
+            md.append("| Task | Candidate | Reward | Failure Stage | Code |")
+            md.append("| --- | --- | --- | --- | --- |")
+            for f in failures:
+                md.append(
+                    f"| `{f.get('taskId')}` | `{f.get('candidate')}` | "
+                    f"{f.get('reward')} | `{f.get('failureStage')}` | `{f.get('failureCode')}` |"
+                )
+            md.append("")
 
     return "\n".join(md)
 

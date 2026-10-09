@@ -50,8 +50,22 @@ def run_host_doctor(
     if not net.get("githubHttpsOk"):
         failures.append("Remote host cannot reach https://github.com")
 
-    if not net.get("mavenHttpsOk"):
-        failures.append("Remote host cannot reach https://repo1.maven.org")
+    is_harbor = request.evaluation.kind == "haifa-evals-harbor"
+
+    if is_harbor:
+        if not report.get("dockerComposeOk"):
+            failures.append(
+                "Docker Engine / Compose v2 unavailable to remote "
+                "(required for kind: haifa-evals-harbor)"
+            )
+        if not report.get("uvOk"):
+            failures.append("uv is not installed on the remote host (required for evals)")
+    else:
+        if not net.get("mavenHttpsOk"):
+            failures.append("Remote host cannot reach https://repo1.maven.org")
+
+    if is_harbor and not net.get("bigmodelHttpsOk"):
+        failures.append("Remote host cannot reach the GLM provider endpoint (open.bigmodel.cn)")
 
     if failures:
         msg = "\n  - ".join(["Host preflight doctor checks FAILED:"] + failures)

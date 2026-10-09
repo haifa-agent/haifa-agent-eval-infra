@@ -1,0 +1,37 @@
+schemaVersion: 2
+runId: tb2-glm53-smoke-001
+
+target:
+  # address and user are omitted here and will be loaded from .env (TARGET_HOST_IP and TARGET_HOST_USER)
+  # pinned by evalctl host trust for spot stack 9b81a592-d154-4992-a9e9-98aeb09b29ab (ed25519)
+  hostKeySha256: "SHA256:YBdTS5+UDjvoRvxSBvr36FWqhsbIr3upTUU0LgMhdKw"
+  sshPrivateKeyFileEnv: HAIFA_EVAL_HOST_SSH_KEY_FILE
+  requirePasswordlessSudo: true
+
+source:
+  githubPrivateKeyFileEnv: HAIFA_EVAL_GITHUB_SSH_KEY_FILE
+  # kind: haifa-evals-harbor freezes the HAIFA-AGENT-EVALS repository instead of
+  # the product repo. The remote supervisor runs the evals CLI from this frozen
+  # checkout, so the zhipu/terminal-bench eval configs must be pushed to this
+  # branch before the run (or pin evaluation by exact commit).
+  product:
+    url: git@github.com:haifa-agent/haifa-agent-evals.git
+    branch: main
+    # commit: 0123456789abcdef0123456789abcdef01234567
+
+evaluation:
+  kind: haifa-evals-harbor
+  providerId: zhipu
+  modelId: glm-5.3-flash
+  # Stem of evals/<evalId>.yaml inside the frozen haifa-agent-evals checkout.
+  evalId: coding-terminal-bench2-glm53-smoke-v1
+  # OpenAI-compatible GLM endpoint injected as BIGMODEL_API_BASE.
+  apiBaseUrl: https://open.bigmodel.cn/api/paas/v4
+  allowRealProvider: true
+  requiredSecretEnvironmentNames:
+    - BIGMODEL_API_KEY
+
+output:
+  remoteEvidenceRoot: /var/lib/haifa-eval/evidence
+  localResultRoot: D:/haifa-agent-eval-results
+  retainRemoteEvidenceAfterPull: true

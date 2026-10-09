@@ -48,6 +48,24 @@ output_json() {
     maven_ok=false
   fi
 
+  if curl -s -m 5 -I https://open.bigmodel.cn >/dev/null 2>&1; then
+    bigmodel_ok=true
+  else
+    bigmodel_ok=false
+  fi
+
+  if docker info >/dev/null 2>&1 || sudo -n docker info >/dev/null 2>&1; then
+    docker_ok=true
+  else
+    docker_ok=false
+  fi
+
+  if command -v uv >/dev/null 2>&1 || [[ -x /opt/haifa-eval/bin/uv ]]; then
+    uv_ok=true
+  else
+    uv_ok=false
+  fi
+
   cat <<EOF
 {
   "os": {
@@ -60,8 +78,11 @@ output_json() {
   "isRunTmpfs": $run_tmpfs,
   "network": {
     "githubHttpsOk": $github_ok,
-    "mavenHttpsOk": $maven_ok
+    "mavenHttpsOk": $maven_ok,
+    "bigmodelHttpsOk": $bigmodel_ok
   },
+  "dockerComposeOk": $docker_ok,
+  "uvOk": $uv_ok,
   "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 }
 EOF

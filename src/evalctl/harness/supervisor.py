@@ -1,4 +1,4 @@
-"""Autonomous-delivery ladder execution supervisor with safe progress extraction."""
+﻿"""Autonomous-delivery ladder execution supervisor with safe progress extraction."""
 
 from __future__ import annotations
 
@@ -124,6 +124,60 @@ def build_ladder_spec(request: RunRequest, secrets_path: str, action: str = "run
     }
 
 
+def build_evals_spec(request: RunRequest, secrets_path: str, action: str = "run") -> dict[str, Any]:
+    """Builds the JSON run spec consumed by remote/supervisor-harbor.sh.
+
+    The \"worktree\" is the frozen haifa-agent-evals checkout prepared by
+    ``evalctl source prepare`` with ``source.product`` pointing at the evals
+    repository; the driver runs its own ``evals`` CLI from that worktree.
+    """
+    return {
+        "runId": request.runId,
+        "action": action,
+        "runUser": "haifa-eval",
+        "worktree": f"/var/lib/haifa-eval/worktrees/{request.runId}/haifa-agent-evals",
+        "evalId": request.evaluation.evalId,
+        "apiBaseUrl": request.evaluation.apiBaseUrl,
+        "model": request.evaluation.modelId,
+        "outputDir": f"{request.output.remoteEvidenceRoot}/{request.runId}",
+        "secretsPath": secrets_path,
+    }
+
+
+def _upload_spec_and_script(
+    transport: SSHTransport,
+    request: RunRequest,
+    spec: dict[str, Any],
+    local_supervisor_script: Path,
+    spec_name: str,
+) -> dict[str, str]:
+    remote_control_dir = f"/var/lib/haifa-eval/runs/{request.runId}/control"
+    remote_spec_path = f"{remote_control_dir}/{spec_name}"
+    remote_script_path = f"{remote_control_dir}/{local_supervisor_script.name}"
+
+    transport.run_command(["mkdir", "-p", remote_control_dir])
+
+    spec_content = json.dumps(spec, indent=2)
+    res_spec = transport.run_command(
+        ["bash", "-c", 'cat > "$1"', "_", remote_spec_path],
+        stdin_data=spec_content,
+        timeout=15,
+    )
+    if res_spec.returncode != 0:
+        raise ExecutionError(f"Failed to upload run spec: {res_spec.stderr}")
+
+    script_content = local_supervisor_script.read_text(encoding="utf-8")
+    res_sup = transport.run_command(
+        ["bash", "-c", 'cat > "$1" && chmod +x "$1"', "_", remote_script_path],
+        stdin_data=script_content,
+        timeout=15,
+    )
+    if res_sup.returncode != 0:
+        raise ExecutionError(f"Failed to upload supervisor script: {res_sup.stderr}")
+
+    return {"spec_path": remote_spec_path, "script_path": remote_script_path}
+
+
 def execute_ladder_run(
     transport: SSHTransport,
     request: RunRequest,
@@ -136,29 +190,13 @@ def execute_ladder_run(
 ) -> int:
     """Executes the ladder run via the remote supervisor and streams safe progress."""
     local_journal_file.parent.mkdir(parents=True, exist_ok=True)
-    remote_control_dir = f"/var/lib/haifa-eval/runs/{request.runId}/control"
-    remote_spec_path = f"{remote_control_dir}/ladder-spec.json"
-    remote_script_path = f"{remote_control_dir}/supervisor.sh"
-
-    transport.run_command(["mkdir", "-p", remote_control_dir])
-
-    spec_content = json.dumps(build_ladder_spec(request, secrets_path, action), indent=2)
-    res_spec = transport.run_command(
-        ["bash", "-c", 'cat > "$1"', "_", remote_spec_path],
-        stdin_data=spec_content,
-        timeout=15,
+    remote = _upload_spec_and_script(
+        transport,
+        request,
+        build_ladder_spec(request, secrets_path, action),
+        local_supervisor_script,
+        "ladder-spec.json",
     )
-    if res_spec.returncode != 0:
-        raise ExecutionError(f"Failed to upload ladder spec: {res_spec.stderr}")
-
-    script_content = local_supervisor_script.read_text(encoding="utf-8")
-    res_sup = transport.run_command(
-        ["bash", "-c", 'cat > "$1" && chmod +x "$1"', "_", remote_script_path],
-        stdin_data=script_content,
-        timeout=15,
-    )
-    if res_sup.returncode != 0:
-        raise ExecutionError(f"Failed to upload supervisor script: {res_sup.stderr}")
 
     tracker = SafeProgressTracker(on_progress=on_progress)
 
@@ -171,10 +209,55 @@ def execute_ladder_run(
                 print(line, end="", flush=True)
             tracker.handle_line(line)
 
-        cmd = ["bash", remote_script_path, request.runId, remote_spec_path]
-        exit_code = transport.stream_command(cmd, on_line=stream_callback)
+        exit_code = transport.stream_command(
+            ["bash", remote["script_path"], request.runId, remote["spec_path"]],
+            on_line=stream_callback,
+        )
 
     if exit_code != 0:
         raise ExecutionError(f"Ladder run failed with exit code {exit_code}")
+
+    return exit_code
+
+
+def execute_evals_run(
+    transport: SSHTransport,
+    request: RunRequest,
+    secrets_path: str,
+    local_journal_file: Path,
+    local_supervisor_script: Path,
+    verbose: bool = False,
+    action: str = "run",
+) -> int:
+    """Executes a Harbor (haifa-agent-evals) run via remote/supervisor-harbor.sh.
+
+    Output lines are appended to the local journal only; structured results are
+    delivered later through the evidence artifacts (results.csv, preflight,
+    admission, summary). No free-form agent or model output is printed locally.
+    """
+    local_journal_file.parent.mkdir(parents=True, exist_ok=True)
+    remote = _upload_spec_and_script(
+        transport,
+        request,
+        build_evals_spec(request, secrets_path, action),
+        local_supervisor_script,
+        "evals-spec.json",
+    )
+
+    with local_journal_file.open("a", encoding="utf-8") as journal:
+
+        def stream_callback(line: str) -> None:
+            journal.write(line)
+            journal.flush()
+            if verbose:
+                print(line, end="", flush=True)
+
+        exit_code = transport.stream_command(
+            ["bash", remote["script_path"], request.runId, remote["spec_path"]],
+            on_line=stream_callback,
+        )
+
+    if exit_code != 0:
+        raise ExecutionError(f"Eval run failed with exit code {exit_code}")
 
     return exit_code

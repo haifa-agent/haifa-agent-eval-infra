@@ -65,6 +65,19 @@ def run_host_bootstrap(
 
     # Validate toolchain against lockfile
     toolchain_locks = lock_data.get("toolchain", {})
+    is_harbor = request.evaluation.kind == "haifa-evals-harbor"
+    if is_harbor:
+        # Harbor kind: Docker/uv facts are authoritative; the JVM is not used.
+        if not toolchain.get("uvVersion") or "unavailable" in toolchain.get("uvVersion", ""):
+            raise BootstrapError(
+                f"uv installation missing or broken on remote host: {toolchain.get('uvVersion')}"
+            )
+        if "unavailable" in toolchain.get("composeVersion", ""):
+            raise BootstrapError(
+                f"Docker Compose v2 missing on remote host: {toolchain.get('composeVersion')}"
+            )
+        return toolchain
+
     java_lock = toolchain_locks.get("java", {})
     if java_lock.get("majorVersion") == 21:
         java_ver = toolchain.get("javaVersion", "")

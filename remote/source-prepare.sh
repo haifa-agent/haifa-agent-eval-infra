@@ -26,7 +26,11 @@ cleanup_key() {
 trap cleanup_key EXIT INT TERM
 
 WORKTREE_BASE="/var/lib/haifa-eval/worktrees/$RUN_ID"
-PRODUCT_DIR="$WORKTREE_BASE/haifa-agent"
+if [[ -n "${HARBOR_EVALS_SOURCE:-}" ]]; then
+  PRODUCT_DIR="$WORKTREE_BASE/haifa-agent-evals"
+else
+  PRODUCT_DIR="$WORKTREE_BASE/haifa-agent"
+fi
 
 mkdir -p "$WORKTREE_BASE"
 

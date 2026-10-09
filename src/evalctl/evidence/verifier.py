@@ -116,6 +116,23 @@ def verify_ladder_report(evidence_dir: Path) -> dict[str, Any]:
         raise EvidenceError(f"Failed to parse ladder-report.json: {exc}") from exc
 
 
+def verify_evals_summary(evidence_dir: Path) -> dict[str, Any]:
+    """Validates presence and schema of evals-summary.json (Harbor kind evidence)."""
+    summary_file = evidence_dir / "evals-summary.json"
+    if not summary_file.is_file():
+        raise EvidenceError(f"Evidence directory missing evals-summary.json: {evidence_dir}")
+    try:
+        summary = json.loads(summary_file.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise EvidenceError(f"Failed to parse evals-summary.json: {exc}") from exc
+    if not isinstance(summary, dict) or "evalId" not in summary:
+        raise EvidenceError("evals-summary.json is malformed (missing evalId)")
+    for name in ("results.csv", "preflight.json"):
+        if not (evidence_dir / name).is_file():
+            raise EvidenceError(f"Harbor evidence missing artifact: {name}")
+    return summary
+
+
 def verify_run_records(evidence_dir: Path) -> list[dict[str, Any]]:
     """Validates presence and line-by-line JSON of run-records.jsonl."""
     records_file = evidence_dir / "run-records.jsonl"

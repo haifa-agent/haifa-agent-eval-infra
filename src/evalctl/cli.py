@@ -1,4 +1,4 @@
-"""evalctl CLI entry point and subcommands."""
+﻿"""evalctl CLI entry point and subcommands."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from evalctl.core.errors import EvalctlError
 from evalctl.core.lifecycle import LifecycleManager, LifecycleStage
 from evalctl.evidence.puller import pull_and_verify_evidence
 from evalctl.harness.secret import EphemeralSecretManager
-from evalctl.harness.supervisor import execute_ladder_run
+from evalctl.harness.supervisor import execute_evals_run, execute_ladder_run
 from evalctl.host.bootstrap import run_host_bootstrap
 from evalctl.host.doctor import run_host_doctor
 from evalctl.host.trust import verify_host_key
@@ -218,7 +218,10 @@ def main(args: list[str] | None = None) -> int:
         verbose = getattr(parsed, "verbose", False)
 
         if parsed.command == "host" and parsed.subcommand == "bootstrap":
-            boot_script = REPO_ROOT / "remote" / "bootstrap.sh"
+            if request.evaluation.kind == "haifa-evals-harbor":
+                boot_script = REPO_ROOT / "remote" / "bootstrap-harbor.sh"
+            else:
+                boot_script = REPO_ROOT / "remote" / "bootstrap.sh"
             lockfile = REPO_ROOT / "lockfiles" / "bootstrap-ubuntu-26.04.json"
             facts_dir = control_dir / "host_facts"
             facts = run_host_bootstrap(
@@ -239,19 +242,36 @@ def main(args: list[str] | None = None) -> int:
             secret_mgr = EphemeralSecretManager(transport, request)
             secrets_path = secret_mgr.inject_secrets()
             try:
-                sup_script = REPO_ROOT / "remote" / "supervisor.sh"
-                journal_file = control_dir / "check.journal"
-                print(f"[evalctl] Running harness preflight for run {request.runId} (no provider call)...")
-                execute_ladder_run(
-                    transport,
-                    request,
-                    secrets_path,
-                    journal_file,
-                    sup_script,
-                    on_progress=_print_progress,
-                    verbose=verbose,
-                    action="check",
-                )
+                if request.evaluation.kind == "haifa-evals-harbor":
+                    sup_script = REPO_ROOT / "remote" / "supervisor-harbor.sh"
+                    journal_file = control_dir / "evals.journal"
+                    print(
+                        f"[evalctl] Running Harbor evals preflight for run {request.runId} "
+                        "(admission + doctor, no provider call)..."
+                    )
+                    execute_evals_run(
+                        transport,
+                        request,
+                        secrets_path,
+                        journal_file,
+                        sup_script,
+                        verbose=verbose,
+                        action="check",
+                    )
+                else:
+                    sup_script = REPO_ROOT / "remote" / "supervisor.sh"
+                    journal_file = control_dir / "check.journal"
+                    print(f"[evalctl] Running harness preflight for run {request.runId} (no provider call)...")
+                    execute_ladder_run(
+                        transport,
+                        request,
+                        secrets_path,
+                        journal_file,
+                        sup_script,
+                        on_progress=_print_progress,
+                        verbose=verbose,
+                        action="check",
+                    )
                 lifecycle.record(LifecycleStage.CHECK_PASSED)
                 print("[evalctl] Harness preflight PASSED.")
             finally:
@@ -269,21 +289,34 @@ def main(args: list[str] | None = None) -> int:
             secret_mgr = EphemeralSecretManager(transport, request)
             secrets_path = secret_mgr.inject_secrets()
             try:
-                sup_script = REPO_ROOT / "remote" / "supervisor.sh"
-                journal_file = control_dir / "ladder.journal"
-                print(f"[evalctl] Starting autonomous-delivery ladder for run {request.runId}...")
-                execute_ladder_run(
-                    transport,
-                    request,
-                    secrets_path,
-                    journal_file,
-                    sup_script,
-                    on_progress=_print_progress,
-                    verbose=verbose,
-                )
+                if request.evaluation.kind == "haifa-evals-harbor":
+                    sup_script = REPO_ROOT / "remote" / "supervisor-harbor.sh"
+                    journal_file = control_dir / "evals.journal"
+                    print(f"[evalctl] Starting Harbor evals run for {request.runId}...")
+                    execute_evals_run(
+                        transport,
+                        request,
+                        secrets_path,
+                        journal_file,
+                        sup_script,
+                        verbose=verbose,
+                    )
+                else:
+                    sup_script = REPO_ROOT / "remote" / "supervisor.sh"
+                    journal_file = control_dir / "ladder.journal"
+                    print(f"[evalctl] Starting autonomous-delivery ladder for run {request.runId}...")
+                    execute_ladder_run(
+                        transport,
+                        request,
+                        secrets_path,
+                        journal_file,
+                        sup_script,
+                        on_progress=_print_progress,
+                        verbose=verbose,
+                    )
                 lifecycle.record(LifecycleStage.EVIDENCE_READY)
                 print(
-                    "[evalctl] Ladder run completed. Evidence is ready for collection."
+                    "[evalctl] Run completed. Evidence is ready for collection."
                 )
             finally:
                 secret_mgr.destroy_secrets()

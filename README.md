@@ -104,6 +104,41 @@ output:
   retainRemoteEvidenceAfterPull: true
 ```
 
+## kind: haifa-evals-harbor（Terminal-Bench / Harbor 评测驱动）
+
+除 `haifa-ladder` 外，控制平面还支持 `kind: haifa-evals-harbor`。该驱动冻结
+`haifa-agent-evals` 仓库（Harbor 评测工程）而非 product 仓库，并在远端 systemd 瞬态单元中
+运行其自带的 `evals` CLI 完成 **admit → doctor → run → collect → report** 的
+Harbor/Terminal-Bench 评测流水。示例如仓库根目录下的 `run-request-evals-tb2-glm53.yaml`。
+
+要点：
+
+- bootstrap 会按 kind 切换为 `remote/bootstrap-harbor.sh`：安装 Docker Engine、Compose v2 与
+  uv，不再安装 JVM/Maven。
+- 凭据（如 `BIGMODEL_API_KEY`）仍通过 SSH stdin 写入远端 tmpfs secrets.env（0600，用后即毁），
+  并以 `BIGMODEL_API_BASE`（默认 `https://open.bigmodel.cn/api/paas/v4`）指定端点；evals 工程内部
+  会将两者映射为 LiteLLM `zai/` 前缀 provider 所需的容器内变量，全程不打印密钥。
+- 远端证据包含 `results.csv`、`preflight.json`、admission JSON、`report.md` 与
+  `evals-summary.json`；`evalctl collect` 按 SHA-256 清单校验后拉回，`evalctl report`
+  渲染按 candidate 汇总的 Markdown/终端报告。
+
+```yaml
+evaluation:
+  kind: haifa-evals-harbor
+  providerId: zhipu
+  modelId: glm-5.3-flash
+  evalId: coding-terminal-bench2-glm53-smoke-v1   # 冻结 checkout 内 evals/<evalId>.yaml
+  apiBaseUrl: https://open.bigmodel.cn/api/paas/v4
+  allowRealProvider: true
+  requiredSecretEnvironmentNames:
+    - BIGMODEL_API_KEY
+
+source:
+  product:
+    url: git@github.com:haifa-agent/haifa-agent-evals.git   # 冻结对象是 evals 工程
+    branch: main
+```
+
 ## 评测主机生命周期管理（阿里云 ROS 抢占式实例）
 
 控制面在 `infra/ros/` 目录下提供了基于阿里云资源编排（ROS）的标准模板与生命周期管理工具，用于极速拉取超低成本的全新抢占式（Spot）Ubuntu 主机，并在评测结束后彻底销毁释放。

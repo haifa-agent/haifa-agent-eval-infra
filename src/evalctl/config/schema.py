@@ -104,12 +104,22 @@ class SourceConfig(BaseModel):
     product: RepoSpec
 
 
-class EvaluationConfig(BaseModel):
-    """Autonomous-delivery capability ladder evaluation configuration."""
+HARBOR_EVAL_ID_REGEX = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
-    kind: Literal["haifa-ladder"] = "haifa-ladder"
+
+class EvaluationConfig(BaseModel):
+    """Evaluation configuration for either the ladder runner or a Harbor (evals) run."""
+
+    kind: Literal["haifa-ladder", "haifa-evals-harbor"] = "haifa-ladder"
     providerId: str
     modelId: str
+    # Harbor kind: stem of the eval config file inside the frozen
+    # haifa-agent-evals repository (source.product checkout).
+    evalId: str = ""
+    # Harbor kind (zhipu): OpenAI-compatible GLM endpoint injected to the run
+    # unit as BIGMODEL_API_BASE; empty means the evals default endpoint
+    # (https://open.bigmodel.cn/api/paas/v4). Supports ${ENV_VAR} expansion.
+    apiBaseUrl: str = ""
     caseSet: str = "ladder-v1"
     cases: str = ""
     repeat: int | None = None
@@ -127,6 +137,24 @@ class EvaluationConfig(BaseModel):
         val = value.strip() if value else ""
         if not val:
             raise RequestValidationError("evaluation.caseSet must not be empty")
+        return val
+
+    @field_validator("evalId")
+    @classmethod
+    def validate_eval_id(cls, value: str) -> str:
+        val = (value or "").strip()
+        if val and HARBOR_EVAL_ID_REGEX.match(val) is None:
+            raise RequestValidationError(
+                f"evaluation.evalId must match {HARBOR_EVAL_ID_REGEX.pattern}, got: {val}"
+            )
+        return val
+
+    @field_validator("apiBaseUrl")
+    @classmethod
+    def validate_api_base_url(cls, value: str) -> str:
+        val = (value or "").strip()
+        if val and not val.startswith("https://"):
+            raise RequestValidationError("evaluation.apiBaseUrl must be an HTTPS URL when set")
         return val
 
     @field_validator("repeat")
@@ -190,4 +218,16 @@ class RunRequest(BaseModel):
             raise RequestValidationError(
                 "Host SSH key env and GitHub deploy key env must be distinct environment variables"
             )
+        evaluation = self.evaluation
+        if evaluation.kind == "haifa-evals-harbor":
+            if not evaluation.evalId:
+                raise RequestValidationError(
+                    "evaluation.evalId is required for kind: haifa-evals-harbor "
+                    "(stem of the eval config file inside the frozen haifa-agent-evals checkout)"
+                )
+        else:
+            if evaluation.evalId or evaluation.apiBaseUrl:
+                raise RequestValidationError(
+                    "evaluation.evalId/apiBaseUrl only apply to kind: haifa-evals-harbor"
+                )
         return self

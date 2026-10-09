@@ -39,18 +39,23 @@ def prepare_sources(
     if res_key.returncode != 0:
         raise SourcePrepareError(f"Failed to inject temporary GitHub key: {res_key.stderr}")
 
-    product = request.source.product
+    is_harbor_evals = request.evaluation.kind == "haifa-evals-harbor"
+    env_prefix = ["env", "HARBOR_EVALS_SOURCE=1"] if is_harbor_evals else []
+    product_spec = request.source.product
     try:
         script_content = local_source_script.read_text(encoding="utf-8")
-        args = [
-            "bash",
-            "-s",
-            "--",
-            request.runId,
-            product.url,
-            product.target_ref,
-            remote_key_path,
-        ]
+        args = (
+            env_prefix
+            + [
+                "bash",
+                "-s",
+                "--",
+                request.runId,
+                product_spec.url,
+                product_spec.target_ref,
+                remote_key_path,
+            ]
+        )
         res_prep = transport.run_command(
             args, stdin_data=script_content, timeout=600, verbose=verbose
         )
@@ -72,14 +77,17 @@ def prepare_sources(
             json.dumps(manifest, indent=2), encoding="utf-8"
         )
 
-        man_repos = manifest.get("repositories", {})
-        resolved = man_repos.get("product", {}).get("commit", "")
-        if product.commit and resolved != product.commit:
+        resolved = (
+            manifest.get("repositories", {}).get("product", {}).get("commit", "")
+        )
+        product_commit = request.source.product.commit
+        if product_commit and resolved != product_commit:
             raise SourcePrepareError(
-                f"Product commit mismatch in source manifest: expected {product.commit}, got {resolved}"
+                f"Product commit mismatch in source manifest: "
+                f"expected {product_commit}, got {resolved}"
             )
-        if not product.commit:
-            product.commit = resolved
+        if not product_commit:
+            request.source.product.commit = resolved
 
         return manifest
     finally:
