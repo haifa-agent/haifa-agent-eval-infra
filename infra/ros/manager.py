@@ -330,6 +330,11 @@ def main() -> None:
     up_parser.add_argument("--no-wait", action="store_true", help="Do not wait for creation to complete")
     up_parser.add_argument("--no-sync-env", action="store_true", help="Do not update TARGET_HOST_IP in .env")
     up_parser.add_argument("--timeout", type=int, default=300, help="Creation timeout in seconds")
+    up_parser.add_argument(
+        "--parameters",
+        type=Path,
+        help="Alternative ROS parameters file (defaults to infra/ros/parameters.yaml)",
+    )
 
     # status
     status_parser = subparsers.add_parser("status", help="Get current stack status")
@@ -349,7 +354,8 @@ def main() -> None:
         print(json.dumps(res, indent=2, ensure_ascii=False))
 
     elif args.command == "up":
-        info = mgr.create_stack(
+        reporter = ROSManager(parameters_file=args.parameters)
+        info = reporter.create_stack(
             sync_env=not args.no_sync_env,
             wait=not args.no_wait,
             timeout=args.timeout,
