@@ -221,13 +221,23 @@ class ROSManager:
 
         raise TimeoutError(f"Stack creation timed out after {timeout} seconds")
 
+    def _state_region(self) -> str | None:
+        """Region of the most recently created stack, if recorded."""
+        if not self.state_file.exists():
+            return None
+        try:
+            with open(self.state_file, encoding="utf-8") as f:
+                return json.load(f).get("region_id")
+        except (OSError, ValueError, json.JSONDecodeError):
+            return None
+
     def get_stack(self, stack_id: str | None = None, region_id: str | None = None) -> dict[str, Any]:
         """Fetch stack details from ROS."""
         sid = stack_id or self._load_active_stack_id()
         if not sid:
             raise ValueError("No stack_id provided and no active stack recorded in state file.")
 
-        reg = region_id
+        reg = region_id or self._state_region()
         if not reg:
             reg, _, _ = self.load_config()
 
@@ -247,7 +257,7 @@ class ROSManager:
         if not sid:
             raise ValueError("No stack_id provided and no active stack recorded in state file.")
 
-        reg = region_id
+        reg = region_id or self._state_region()
         if not reg:
             reg, _, _ = self.load_config()
 
