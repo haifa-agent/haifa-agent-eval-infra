@@ -51,15 +51,51 @@ if [[ ! -f "$WORKTREE/$CONFIG_RELPATH" ]]; then
 fi
 
 RUN_HOME_ROOT="/var/lib/haifa-eval/runs/$RUN_ID/harbor"
-WORK_DIR="$RUN_HOME_ROOT/job"
+# Timestamped job dir: host-side Terminus-2 requires BIGMODEL secrets mapped to
+# LiteLLM's ZAI_* names (see derived env below), and evals runs need unique
+# work dirs per invocation.
+WORK_DIR="$RUN_HOME_ROOT/job-$(date +%Y%m%dT%H%M%SZ)"
 
 echo "[supervisor-harbor] Preparing work directories..."
-mkdir -p "$WORK_DIR" "$OUTPUT_DIR"
+# WORK_DIR must NOT pre-exist: `evals run --work-dir` creates it itself. The
+# RUN_HOME_ROOT and OUTPUT_DIR are created here as root, then handed to the
+# unprivileged run user so the driver can create subdirectories.
+mkdir -p "$RUN_HOME_ROOT" "$OUTPUT_DIR"
 chown -R "$RUN_USER:$RUN_USER" "$RUN_HOME_ROOT" "$OUTPUT_DIR" 2>/dev/null || true
 
 if [[ -z "${API_BASE_URL}" ]]; then
   API_BASE_URL="https://open.bigmodel.cn/api/paas/v4"
 fi
+
+# LiteLLM's zai/ provider reads ZAI_API_KEY / ZAI_API_BASE from the *host*
+# process env (Terminus-2 runs its LLM calls inside the harbor process). The
+# user-facing names are BIGMODEL_*; derive the ZAI names here into a tmpfs
+# env file. Values are never printed.
+derived_secret_dir="$(dirname "$SECRETS_PATH")"
+DERIVED_ENV="$derived_secret_dir/secrets-derived.env"
+echo "[supervisor-harbor] Deriving provider environment (log-free)..."
+sudo bash -s -- "$RUN_USER" "$SECRETS_PATH" "$DERIVED_ENV" "${API_BASE_URL}" <<'DERIVE'
+set -euo pipefail
+run_user="$1"
+secrets_path="$2"
+derived_env="$3"
+api_base_url="${4:-}"
+
+zai_api_base="$api_base_url"
+if [[ -z "$zai_api_base" ]]; then
+  zai_api_base="https://open.bigmodel.cn/api/paas/v4"
+fi
+
+# NOSET: values stay inside this file only. shellcheck disable=SC1090
+source "$secrets_path"
+{
+  printf 'ZAI_API_KEY="%s"\n' "${BIGMODEL_API_KEY:-}"
+  printf 'ZAI_API_BASE="%s"\n' "$zai_api_base"
+  printf 'BIGMODEL_API_BASE="%s"\n' "$zai_api_base"
+} > "$derived_env"
+chmod 0600 "$derived_env"
+chown "$run_user:$run_user" "$derived_env"
+DERIVE
 
 # uv.lock pins pypi.org; pypi.org is unreachable from cn snapshots, so swap
 # the default index to the Aliyun PyPI mirror for every uv invocation in this run.
@@ -177,6 +213,7 @@ sudo systemd-run \
   --uid="$RUN_USER" \
   --gid="$RUN_USER" \
   --property=EnvironmentFile="$SECRETS_PATH" \
+  --property=EnvironmentFile="$DERIVED_ENV" \
   --property=Environment="HOME=/home/$RUN_USER" \
   --property=Environment="UV_BIN=$UV_BIN" \
   --property=Environment="UV_DEFAULT_INDEX=$UV_DEFAULT_INDEX" \
