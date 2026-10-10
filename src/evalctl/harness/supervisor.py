@@ -220,6 +220,26 @@ def execute_ladder_run(
     return exit_code
 
 
+SAFE_EVALS_LINE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    compiled
+    for compiled in (
+        re.compile(pattern)
+        for pattern in (
+            r"^\[supervisor-harbor\]",
+            r"^\[driver\]",
+            r"^Running as unit:",
+            r"^Finished with result:",
+            r"^admission: ",
+        )
+    )
+)
+
+
+def safe_evals_line(line: str) -> bool:
+    """True for supervisor/driver control lines that are safe to print locally."""
+    return any(pattern.match(line.strip()) for pattern in SAFE_EVALS_LINE_PATTERNS)
+
+
 def execute_evals_run(
     transport: SSHTransport,
     request: RunRequest,
@@ -231,9 +251,11 @@ def execute_evals_run(
 ) -> int:
     """Executes a Harbor (haifa-agent-evals) run via remote/supervisor-harbor.sh.
 
-    Output lines are appended to the local journal only; structured results are
+    All output is appended to the local journal. Only safe control lines
+    ([supervisor-harbor]/[driver] markers) are echoed locally as a heartbeat;
+    free-form agent or model output is never surfaced. Structured results are
     delivered later through the evidence artifacts (results.csv, preflight,
-    admission, summary). No free-form agent or model output is printed locally.
+    admission, summary).
     """
     local_journal_file.parent.mkdir(parents=True, exist_ok=True)
     remote = _upload_spec_and_script(
@@ -249,7 +271,7 @@ def execute_evals_run(
         def stream_callback(line: str) -> None:
             journal.write(line)
             journal.flush()
-            if verbose:
+            if verbose or safe_evals_line(line):
                 print(line, end="", flush=True)
 
         exit_code = transport.stream_command(
